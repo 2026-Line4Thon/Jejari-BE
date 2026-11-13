@@ -1,5 +1,6 @@
 # Jejari-BE
 
+```
 repo/
 ├── config/                 # 프로젝트 설정
 │   ├── settings/
@@ -23,3 +24,4 @@ repo/
 ├── docker-compose.yml      # 로컬 PostgreSQL + pgvector
 ├── .env.example
 └── .gitignore
+```
