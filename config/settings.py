@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     # third party
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     # app
@@ -140,6 +141,8 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=14),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BlACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -161,3 +164,6 @@ OPENAI_EMBEDDING_MODEL = env('OPENAI_EMBEDDING_MODEL', default='text-embedding-3
 # VectorField(dimensions=...)에 그대로 쓰는 값. 임베딩 모델을 바꾸면 마이그레이션도 다시 만들어야 함
 EMBEDDING_DIMENSIONS = 1536
 AI_TIMEOUT_SECONDS = 15
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
