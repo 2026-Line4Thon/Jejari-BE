@@ -10,6 +10,7 @@ from .client import AIError
 
 __all__ = [
     'AIError', 'ImageAnalysis', 'analyze_item_image', 'summarize_item', 'embed_text', 'write_match_reasons',
+    'generate_ownership_questions', 'judge_ownership',
 ]
 
 MAX_FEATURES = 5
@@ -131,3 +132,67 @@ def write_match_reasons(payload):
     if not isinstance(reasons, list):
         raise AIError('매칭 근거 응답 형식이 올바르지 않습니다.')
     return reasons
+
+
+def _question_pairs(items):
+    pairs = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        text, expected = _clean_text(item.get('text')), _clean_text(item.get('expected'))
+        if text and expected:
+            pairs.append({'text': text, 'expected': expected})
+    return pairs
+
+
+def generate_ownership_questions(secret, public, count=2):
+    """
+    습득자의 비공개 정보(secret) → 정답이 드러나지 않는 질문 [{text, expected}] count개.
+    expected(기대 답변)는 서버에만 저장하고 응답에 내려주지 않습니다.
+    """
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.OWNERSHIP_QUESTIONS_SCHEMA,
+        schema_name='ownership_questions',
+        max_tokens=500,
+        messages=[
+            {'role': 'system', 'content': prompts.OWNERSHIP_QUESTIONS_SYSTEM.format(count=count)},
+            {'role': 'user', 'content': json.dumps({'secret': secret, 'public': public}, ensure_ascii=False)},
+        ],
+    )
+    questions = _question_pairs(raw.get('questions') if isinstance(raw, dict) else None)
+    if len(questions) < count:
+        raise AIError('소유권 확인 질문을 만들지 못했습니다.')
+    return questions[:count]
+
+
+def judge_ownership(qa, secret, public, allow_follow_up):
+    """
+    qa: [{question, expected, answer}] → (result, follow_up)
+    result는 MATCHED / NEED_MORE / MISMATCH, follow_up은 NEED_MORE일 때 {text, expected}.
+    """
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.OWNERSHIP_JUDGE_SCHEMA,
+        schema_name='ownership_judge',
+        max_tokens=400,
+        messages=[
+            {'role': 'system', 'content': prompts.OWNERSHIP_JUDGE_SYSTEM},
+            {'role': 'user', 'content': json.dumps(
+                {'secret': secret, 'public': public, 'qa': qa, 'allow_follow_up': allow_follow_up},
+                ensure_ascii=False,
+            )},
+        ],
+    )
+    result = raw.get('result') if isinstance(raw, dict) else None
+    if result not in ('MATCHED', 'NEED_MORE', 'MISMATCH'):
+        raise AIError('판정 결과 형식이 올바르지 않습니다.')
+
+    follow_up = None
+    if result == 'NEED_MORE':
+        pairs = _question_pairs([raw.get('follow_up')])
+        if not allow_follow_up or not pairs:
+            result = 'MISMATCH'  # 더 물어볼 수 없으면 애매한 답은 불일치로 처리
+        else:
+            follow_up = pairs[0]
+    return result, follow_up

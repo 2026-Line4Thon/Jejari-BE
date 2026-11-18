@@ -71,3 +71,48 @@ class CandidateRejectResponseSerializer(serializers.Serializer):
     candidate_id = serializers.IntegerField()
     status = serializers.CharField()
     message = serializers.CharField()
+
+
+# ---------------------------------------------------------------------------
+# 소유권 확인 (F-04, F-05)
+# ---------------------------------------------------------------------------
+
+class OwnershipQuestionSerializer(serializers.Serializer):
+    question_id = serializers.IntegerField()
+    text = serializers.CharField()
+
+
+class OwnershipCheckCreateResponseSerializer(serializers.Serializer):
+    check_id = serializers.IntegerField()
+    candidate_id = serializers.IntegerField()
+    attempt_no = serializers.IntegerField()
+    remaining_attempts = serializers.IntegerField()
+    questions = OwnershipQuestionSerializer(many=True)
+
+
+class OwnershipAnswerItemSerializer(serializers.Serializer):
+    question_id = serializers.IntegerField()
+    answer = serializers.CharField(max_length=500, allow_blank=True, trim_whitespace=True)
+
+
+class OwnershipAnswersSerializer(serializers.Serializer):
+    answers = OwnershipAnswerItemSerializer(many=True, allow_empty=False)
+
+
+class OwnershipAnswerResponseSerializer(serializers.Serializer):
+    check_id = serializers.IntegerField()
+    result = serializers.CharField()
+    message = serializers.CharField()
+    chat_room_id = serializers.IntegerField(required=False, help_text='MATCHED일 때만')
+    questions = OwnershipQuestionSerializer(many=True, required=False, help_text='NEED_MORE일 때만')
+    remaining_attempts = serializers.IntegerField(required=False, help_text='MISMATCH일 때만')
+
+
+class OwnershipCheckDetailSerializer(serializers.Serializer):
+    check_id = serializers.IntegerField()
+    candidate_id = serializers.IntegerField()
+    attempt_no = serializers.IntegerField()
+    result = serializers.CharField()
+    chat_room_id = serializers.IntegerField(allow_null=True)
+    remaining_attempts = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
