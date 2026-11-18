@@ -17,9 +17,9 @@ class MatchCandidate(BaseModel):
         MEDIUM = 'MEDIUM', '보통 유사도'
         LOW = 'LOW', '낮은 유사도'
 
-    # 아직 진행 중인 후보 (제외·불일치·잠김이 아닌 것)
-    ACTIVE_STATUSES = (Status.CANDIDATE, Status.VERIFYING, Status.MATCHED)
-    CLOSED_STATUSES = (Status.EXCLUDED, Status.MISMATCHED, Status.LOCKED)
+    # 아직 진행 중인 후보. MISMATCHED는 남은 시도가 있어 다시 확인할 수 있으므로 진행 중으로 봄
+    ACTIVE_STATUSES = (Status.CANDIDATE, Status.VERIFYING, Status.MATCHED, Status.MISMATCHED)
+    CLOSED_STATUSES = (Status.EXCLUDED, Status.LOCKED)
 
     lost_item = models.ForeignKey(
         'items.LostItem',
