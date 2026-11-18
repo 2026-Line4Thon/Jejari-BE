@@ -2,12 +2,14 @@ import logging
 import uuid
 
 from django.core.files.base import ContentFile
+from django.db import transaction
 
 from ai import images
-from ai.services import AIError, analyze_item_image
+from ai.services import AIError, analyze_item_image, embed_text, summarize_item
 from common.storage import private_storage, public_storage
+from matching.engine import LOST, schedule_matching
 
-from .models import ItemImage
+from .models import ItemImage, LostItem
 
 logger = logging.getLogger(__name__)
 
@@ -58,3 +60,83 @@ def create_analyzed_image(user, upload):
         is_blurred=analysis.sensitive,
         ai_tags=analysis.to_dict(),
     ), analysis
+
+
+# ---------------------------------------------------------------------------
+# 분실물·습득물 등록 공통: 설명문 생성 + 임베딩
+# ---------------------------------------------------------------------------
+
+def build_template_summary(info):
+    """AI 설명문 생성이 실패했을 때 쓰는 고정 템플릿 설명문."""
+    parts = []
+    head = ' '.join(v for v in (info.get('color'), info.get('brand'), info.get('item_name')) if v)
+    parts.append(f'{head}입니다.' if head else f"{info.get('category', '물건')}입니다.")
+    if info.get('features'):
+        parts.append('특징: ' + ', '.join(info['features']) + '.')
+    if info.get('detail'):
+        parts.append(info['detail'].strip())
+    if info.get('chat_summary'):
+        parts.append(info['chat_summary'].strip())
+    return ' '.join(parts)
+
+
+def build_summary_and_embedding(info):
+    """
+    물건 정보 → (설명문, 임베딩).
+
+    설명문은 AI로 만들고 실패하면 템플릿으로 대체합니다.
+    임베딩은 대체할 방법이 없어 실패하면 AnalysisUnavailable (→ 504).
+    """
+    try:
+        summary = summarize_item(info)
+    except AIError as exc:
+        logger.info('설명문 생성 실패, 템플릿 사용: %s', exc)
+        summary = build_template_summary(info)
+
+    try:
+        embedding = embed_text(summary)
+    except AIError as exc:
+        raise AnalysisUnavailable from exc
+    return summary, embedding
+
+
+def register_lost_item(user, data):
+    """
+    검증된 등록 데이터로 분실물 저장 → 특징 구체화 대화 연결 → 커밋 후 매칭 예약.
+
+    data: LostItemCreateSerializer.validated_data (image, feature_chat, place 객체 포함)
+    """
+    feature_chat = data.get('feature_chat')
+    info = {
+        'category': data['category'],
+        'item_name': data['item_name'],
+        'color': data.get('color'),
+        'brand': data.get('brand'),
+        'features': data.get('features') or [],
+        'detail': data.get('description'),
+        'chat_summary': feature_chat.summary if feature_chat else None,
+    }
+    summary, embedding = build_summary_and_embedding(info)
+
+    with transaction.atomic():
+        lost_item = LostItem.objects.create(
+            user=user,
+            image=data.get('image'),
+            place=data['place'],
+            location_detail=data.get('location_detail'),
+            category=info['category'],
+            item_name=info['item_name'],
+            color=info['color'],
+            brand=info['brand'],
+            features=info['features'],
+            description=summary,
+            lost_from=data['lost_from'],
+            lost_to=data['lost_to'],
+            text_embedding=embedding,
+        )
+        if feature_chat:
+            feature_chat.lost_item = lost_item
+            feature_chat.save(update_fields=['lost_item', 'updated_at'])
+        schedule_matching(LOST, lost_item.id)
+
+    return lost_item

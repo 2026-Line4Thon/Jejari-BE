@@ -1,4 +1,5 @@
 import base64
+import json
 import re
 from dataclasses import asdict, dataclass, field
 
@@ -7,7 +8,7 @@ from django.conf import settings
 from . import client, prompts
 from .client import AIError
 
-__all__ = ['AIError', 'ImageAnalysis', 'analyze_item_image']
+__all__ = ['AIError', 'ImageAnalysis', 'analyze_item_image', 'summarize_item', 'embed_text']
 
 MAX_FEATURES = 5
 
@@ -82,3 +83,31 @@ def analyze_item_image(jpeg_bytes):
         features=features[:MAX_FEATURES],
         sensitive=bool(raw.get('sensitive')),
     )
+
+
+def summarize_item(info):
+    """
+    물건 정보(dict) → 설명문 한 문단. 분실물·습득물이 같은 형식으로 써서 임베딩 비교가 공정하게 되도록 함.
+
+    info 키: category, item_name, color, brand, features(list), detail(사용자 상세 설명), chat_summary
+    """
+    payload = {k: v for k, v in info.items() if v not in (None, '', [])}
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.ITEM_SUMMARY_SCHEMA,
+        schema_name='item_summary',
+        max_tokens=300,
+        messages=[
+            {'role': 'system', 'content': prompts.ITEM_SUMMARY_SYSTEM},
+            {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)},
+        ],
+    )
+    summary = _clean_text(raw.get('summary')) if isinstance(raw, dict) else None
+    if not summary:
+        raise AIError('설명문이 비어 있습니다.')
+    return summary
+
+
+def embed_text(text):
+    """설명문 → 임베딩 벡터."""
+    return client.embed(text)

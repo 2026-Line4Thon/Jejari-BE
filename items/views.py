@@ -6,18 +6,27 @@ from rest_framework.response import Response
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+from rest_framework.exceptions import NotFound, PermissionDenied
 
 from ai.images import InvalidImage
 from matching.models import MatchCandidate
 
-from .models import FoundItem, ItemStatus
+from .models import FoundItem, ItemStatus, LostItem
 from .serializers import (
     FoundItemListSerializer,
     FoundItemDetailSerializer,
     ImageAnalyzeRequestSerializer,
     ImageAnalyzeResponseSerializer,
+    LostItemCreateResponseSerializer,
+    LostItemCreateSerializer,
+    LostItemDetailSerializer,
 )
-from .services import AnalysisUnavailable, NoItemDetected, create_analyzed_image
+from .services import (
+    AnalysisUnavailable,
+    NoItemDetected,
+    create_analyzed_image,
+    register_lost_item,
+)
 
 
 # 1. 메인 홈 정보 조회 (GET /home)
@@ -184,3 +193,57 @@ class ItemImageAnalyzeView(APIView):
             'unrecognized_fields': [field for field in TAG_FIELDS if tags[field] is None],
         }
         return Response(ImageAnalyzeResponseSerializer(data).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# 분실물 등록 (C-05, E-01) · 등록 결과 조회 (C-06)
+# ---------------------------------------------------------------------------
+
+class LostItemCreateView(APIView):
+    """분실물을 저장하고, 커밋 후 백그라운드에서 자동 매칭을 실행한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LostItemCreateSerializer,
+        responses={
+            201: LostItemCreateResponseSerializer,
+            400: OpenApiResponse(description='필수 값 누락, 사진·설명 모두 없음, 시간 범위 오류'),
+            404: OpenApiResponse(description='이미지·장소·특징 구체화 대화를 찾을 수 없음'),
+            504: OpenApiResponse(description='설명문 임베딩 생성 실패'),
+        },
+    )
+    def post(self, request):
+        serializer = LostItemCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            lost_item = register_lost_item(request.user, serializer.validated_data)
+        except AnalysisUnavailable:
+            return Response(
+                {'detail': '등록 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.'},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        data = {
+            'lost_item_id': lost_item.id,
+            'status': lost_item.status,
+            'message': '분실물이 등록되었습니다. 비슷한 물건을 찾고 있어요.',
+        }
+        return Response(LostItemCreateResponseSerializer(data).data, status=status.HTTP_201_CREATED)
+
+
+class LostItemDetailView(APIView):
+    """등록한 분실물 정보와 매칭 진행 상태. 등록자 본인만 조회 가능."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: LostItemDetailSerializer})
+    def get(self, request, item_id):
+        lost_item = LostItem.objects.select_related('image', 'place').filter(id=item_id).first()
+        if lost_item is None:
+            raise NotFound('분실물을 찾을 수 없습니다.')
+        if lost_item.user_id != request.user.id:
+            raise PermissionDenied()
+        serializer = LostItemDetailSerializer(lost_item, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)

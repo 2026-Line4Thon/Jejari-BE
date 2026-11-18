@@ -4,6 +4,8 @@ from .views import (
     FoundItemListView,
     FoundItemDetailView,
     ItemImageAnalyzeView,
+    LostItemCreateView,
+    LostItemDetailView,
 )
 
 urlpatterns = [
@@ -17,5 +19,7 @@ urlpatterns = [
         ),
         name='found-image-analyze',
     ),
+    path('items/lost', LostItemCreateView.as_view(), name='lost-item-create'),
+    path('items/lost/<int:item_id>', LostItemDetailView.as_view(), name='lost-item-detail'),
     path('items/lost/images/analyze', ItemImageAnalyzeView.as_view(), name='lost-image-analyze'),
 ]

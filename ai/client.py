@@ -73,4 +73,7 @@ def embed(text):
     except openai.OpenAIError as exc:
         logger.warning('OpenAI embedding 호출 실패: %s', exc)
         raise AIError(str(exc)) from exc
-    return response.data[0].embedding
+    vector = response.data[0].embedding
+    if len(vector) != settings.EMBEDDING_DIMENSIONS:
+        raise AIError(f'임베딩 차원이 맞지 않습니다: {len(vector)}')
+    return vector

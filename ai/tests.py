@@ -86,3 +86,22 @@ class PersonalInfoFilterTests(SimpleTestCase):
         with mock.patch.object(client, 'chat_json', return_value=raw):
             result = analyze_item_image(b'fake-jpeg')
         self.assertEqual(result.features, ['파란 띠 디자인', '사진 부착'])
+
+
+class SummarizeItemTests(SimpleTestCase):
+    def test_sends_only_filled_fields_and_returns_summary(self):
+        from ai.services import summarize_item
+
+        with mock.patch.object(client, 'chat_json', return_value={'summary': ' 검은색 지갑입니다. '}) as chat:
+            result = summarize_item({'category': '지갑', 'color': None, 'features': [], 'detail': '학생증'})
+        self.assertEqual(result, '검은색 지갑입니다.')
+        user_message = chat.call_args.kwargs['messages'][1]['content']
+        self.assertIn('학생증', user_message)
+        self.assertNotIn('color', user_message)
+
+    def test_empty_summary_raises(self):
+        from ai.services import summarize_item
+
+        with mock.patch.object(client, 'chat_json', return_value={'summary': ' '}):
+            with self.assertRaises(AIError):
+                summarize_item({'category': '지갑'})
