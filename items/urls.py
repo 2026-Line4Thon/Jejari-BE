@@ -3,6 +3,9 @@ from .views import (
     HomeView,
     FoundItemListCreateView,
     FoundItemDetailView,
+    FeatureChatAnswerView,
+    FeatureChatFinishView,
+    FeatureChatStartView,
     ItemImageAnalyzeView,
     LostItemCreateView,
     LostItemDetailView,
@@ -22,4 +25,15 @@ urlpatterns = [
     path('items/lost', LostItemCreateView.as_view(), name='lost-item-create'),
     path('items/lost/<int:item_id>', LostItemDetailView.as_view(), name='lost-item-detail'),
     path('items/lost/images/analyze', ItemImageAnalyzeView.as_view(), name='lost-image-analyze'),
+    path('items/lost/feature-chats', FeatureChatStartView.as_view(), name='feature-chat-start'),
+    path(
+        'items/lost/feature-chats/<int:chat_id>/answers',
+        FeatureChatAnswerView.as_view(),
+        name='feature-chat-answer',
+    ),
+    path(
+        'items/lost/feature-chats/<int:chat_id>/finish',
+        FeatureChatFinishView.as_view(),
+        name='feature-chat-finish',
+    ),
 ]
