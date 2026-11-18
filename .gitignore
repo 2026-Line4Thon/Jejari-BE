@@ -265,3 +265,7 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,visualstudiocode,venv,django
+
+# 업로드 이미지 (로컬)
+media/
+private_media/
