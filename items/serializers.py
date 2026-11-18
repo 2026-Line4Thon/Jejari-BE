@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import APIException, NotFound
 
@@ -75,7 +76,7 @@ class ImageAnalyzeResponseSerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
-# 분실물 등록 (POST /items/lost) · 결과 조회 (GET /items/lost/<id>)
+# 분실물·습득물 등록 (POST /items/lost, /items/found) · 분실물 결과 조회 (GET /items/lost/<id>)
 # ---------------------------------------------------------------------------
 
 class BadRequest(APIException):
@@ -91,9 +92,11 @@ def _blank_to_none(value):
     return value or None
 
 
-class LostItemCreateSerializer(serializers.Serializer):
-    image_id = serializers.IntegerField(required=False, allow_null=True)
-    feature_chat_id = serializers.IntegerField(required=False, allow_null=True)
+class ItemCreateBaseSerializer(serializers.Serializer):
+    """분실물·습득물 등록 공통 입력. 사용자가 확인·수정한 값이 AI 분석값보다 우선."""
+
+    NULLABLE_TEXT_FIELDS = ('color', 'brand', 'description', 'location_detail')
+
     category = serializers.CharField(max_length=100)
     item_name = serializers.CharField(max_length=100)
     color = serializers.CharField(max_length=50, required=False, allow_null=True, allow_blank=True)
@@ -108,14 +111,31 @@ class LostItemCreateSerializer(serializers.Serializer):
     location_detail = serializers.CharField(
         max_length=100, required=False, allow_null=True, allow_blank=True
     )
+
+    def normalize(self, attrs):
+        for key in self.NULLABLE_TEXT_FIELDS:
+            attrs[key] = _blank_to_none(attrs.get(key))
+        attrs['features'] = [f.strip() for f in attrs.get('features') or [] if f.strip()]
+
+    def resolve_image_and_place(self, attrs, image_id):
+        """본인이 올린 사진과 장소를 객체로 바꿔 attrs에 넣음. 없으면 404."""
+        user = self.context['request'].user
+        image = ItemImage.objects.filter(id=image_id, uploader=user).first() if image_id else None
+        place = Place.objects.filter(id=attrs.pop('place_id')).first()
+        if (image_id and image is None) or place is None:
+            raise NotFound('이미지 또는 장소를 찾을 수 없습니다.')
+        attrs['image'] = image
+        attrs['place'] = place
+
+
+class LostItemCreateSerializer(ItemCreateBaseSerializer):
+    image_id = serializers.IntegerField(required=False, allow_null=True)
+    feature_chat_id = serializers.IntegerField(required=False, allow_null=True)
     lost_from = serializers.DateTimeField()
     lost_to = serializers.DateTimeField(required=False, allow_null=True)
 
     def validate(self, attrs):
-        user = self.context['request'].user
-        for key in ('color', 'brand', 'description', 'location_detail'):
-            attrs[key] = _blank_to_none(attrs.get(key))
-        attrs['features'] = [f.strip() for f in attrs.get('features') or [] if f.strip()]
+        self.normalize(attrs)
 
         image_id = attrs.pop('image_id', None)
         if not image_id and not attrs['description']:
@@ -125,14 +145,9 @@ class LostItemCreateSerializer(serializers.Serializer):
         if attrs['lost_from'] > attrs['lost_to']:
             raise BadRequest('분실 시작 시각은 끝 시각보다 앞서야 합니다.')
 
-        # 본인이 올린 사진만 사용 가능
-        image = ItemImage.objects.filter(id=image_id, uploader=user).first() if image_id else None
-        place = Place.objects.filter(id=attrs.pop('place_id')).first()
-        if (image_id and image is None) or place is None:
-            raise NotFound('이미지 또는 장소를 찾을 수 없습니다.')
-        attrs['image'] = image
-        attrs['place'] = place
+        self.resolve_image_and_place(attrs, image_id)
 
+        user = self.context['request'].user
         feature_chat_id = attrs.pop('feature_chat_id', None)
         attrs['feature_chat'] = None
         if feature_chat_id:
@@ -142,8 +157,49 @@ class LostItemCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class FoundItemCreateSerializer(ItemCreateBaseSerializer):
+    NULLABLE_TEXT_FIELDS = (
+        *ItemCreateBaseSerializer.NULLABLE_TEXT_FIELDS, 'storage_location', 'private_features',
+    )
+
+    image_id = serializers.IntegerField()
+    found_at = serializers.DateTimeField()
+    storage_status = serializers.ChoiceField(choices=FoundItem.StorageStatus.choices)
+    storage_location = serializers.CharField(
+        max_length=100, required=False, allow_null=True, allow_blank=True
+    )
+    private_features = serializers.CharField(
+        max_length=1000, required=False, allow_null=True, allow_blank=True
+    )
+
+    def validate_found_at(self, value):
+        if value > timezone.now():
+            raise serializers.ValidationError('습득 시각은 현재보다 이후일 수 없습니다.')
+        return value
+
+    def validate(self, attrs):
+        self.normalize(attrs)
+
+        if attrs['storage_status'] == FoundItem.StorageStatus.HANDED_OVER:
+            if not attrs['storage_location']:
+                raise serializers.ValidationError(
+                    {'storage_location': ['인계한 경우 보관 장소를 입력해 주세요.']}
+                )
+        else:
+            attrs['storage_location'] = None  # 직접 보관이면 보관 장소 없음
+
+        self.resolve_image_and_place(attrs, attrs.pop('image_id'))
+        return attrs
+
+
 class LostItemCreateResponseSerializer(serializers.Serializer):
     lost_item_id = serializers.IntegerField()
+    status = serializers.CharField()
+    message = serializers.CharField()
+
+
+class FoundItemCreateResponseSerializer(serializers.Serializer):
+    found_item_id = serializers.IntegerField()
     status = serializers.CharField()
     message = serializers.CharField()
 
