@@ -1,7 +1,7 @@
 """
-채팅방 생성 인터페이스 (A 담당).
+채팅방 생성 함수.
 
-B의 소유권 확인 로직은 결과가 MATCHED일 때 create_chat_room()을 호출하고,
+소유권 확인 결과가 MATCHED일 때 create_chat_room()을 호출하고,
 반환된 chat_room.id를 응답의 chat_room_id로 내려줍니다.
 """
 

@@ -1,7 +1,7 @@
 """
-알림 생성 인터페이스 (A 담당).
+알림 생성 함수.
 
-B의 매칭·소유권 확인 로직은 Notification 모델을 직접 만들지 않고 send()만 호출합니다.
+매칭·소유권 확인 로직은 Notification 모델을 직접 만들지 않고 send()만 호출합니다.
 """
 
 from .models import Notification

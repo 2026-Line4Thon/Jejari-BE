@@ -109,7 +109,7 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static / Media (S3 설정은 배포 시 A가 추가)
+# Static / Media (S3 설정은 배포 시 추가)
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'

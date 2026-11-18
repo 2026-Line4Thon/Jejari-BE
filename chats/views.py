@@ -189,7 +189,7 @@ class ChatCompleteView(APIView):
         chat_room.completed_at = now
         chat_room.save(update_fields=['status', 'completed_at', 'updated_at'])
 
-        # 2. 분실물·습득물 COMPLETED 전환 + 같은 물건에 걸린 다른 후보 종료 (B의 상태 전환 함수)
+        # 2. 분실물·습득물 COMPLETED 전환 + 같은 물건에 걸린 다른 후보 종료
         lost_item, found_item = complete_return(chat_room.candidate)
 
         return Response({
