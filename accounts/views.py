@@ -13,6 +13,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 
 from .models import User, EmailVerification
 from items.models import LostItem, FoundItem
+from matching.models import MatchCandidate, OwnershipCheck
 from chats.models import ChatRoom
 from .serializers import (
     EmailSendSerializer,
@@ -214,27 +215,27 @@ class MyItemListView(APIView):
         serialized_items = []
 
         if item_type == 'lost':
-            queryset = LostItem.objects.filter(owner=request.user).order_by('-created_at')
+            queryset = LostItem.objects.filter(user=request.user).select_related('image').order_by('-created_at')
             for item in queryset:
                 status_code, status_label = self._resolve_lost_status(item)
                 serialized_items.append({
                     "id": item.id,
                     "item_type": "LOST",
                     "item_name": item.item_name,
-                    "thumbnail_url": getattr(item, 'image_url', None),  # 분실물 이미지가 없으면 null
+                    "thumbnail_url": item.image.image_url if item.image else None,  # 분실물 이미지가 없으면 null
                     "status": status_code,
                     "status_label": status_label,
                     "created_at": item.created_at,
                 })
         else:
-            queryset = FoundItem.objects.filter(finder=request.user).order_by('-created_at')
+            queryset = FoundItem.objects.filter(finder=request.user).select_related('image').order_by('-created_at')
             for item in queryset:
                 status_code, status_label = self._resolve_found_status(item)
                 serialized_items.append({
                     "id": item.id,
                     "item_type": "FOUND",
                     "item_name": item.item_name,
-                    "thumbnail_url": item.blurred_image_url,
+                    "thumbnail_url": item.image.image_url,
                     "status": status_code,
                     "status_label": status_label,
                     "created_at": item.created_at,
@@ -256,7 +257,7 @@ class MyItemListView(APIView):
         active_chat = ChatRoom.objects.filter(candidate__lost_item=item, status='ACTIVE').first()
         if active_chat:
             return 'CHATTING', '채팅 진행 중'
-        has_candidates = item.candidates.exclude(status='REJECTED').exists()
+        has_candidates = item.candidates.filter(status__in=MatchCandidate.ACTIVE_STATUSES).exists()
         if has_candidates:
             return 'CANDIDATE_FOUND', '매칭 후보 있음'
         return 'WAITING', '매칭 대기 중'
@@ -267,7 +268,7 @@ class MyItemListView(APIView):
         active_chat = ChatRoom.objects.filter(candidate__found_item=item, status='ACTIVE').first()
         if active_chat:
             return 'CHATTING', '채팅 진행 중'
-        has_candidates = item.candidates.exclude(status='REJECTED').exists()
+        has_candidates = item.candidates.filter(status__in=MatchCandidate.ACTIVE_STATUSES).exists()
         if has_candidates:
             return 'CANDIDATE_FOUND', '매칭 후보 있음'
         return 'WAITING', '매칭 대기 중'
@@ -295,7 +296,7 @@ class MyItemStatusView(APIView):
                     {"detail": "해당 등록 내역을 찾을 수 없습니다."},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            if item.owner != request.user:
+            if item.user != request.user:
                 return Response(
                     {"detail": "해당 등록 내역에 대한 조회 권한이 없습니다."},
                     status=status.HTTP_403_FORBIDDEN
@@ -354,14 +355,15 @@ class MyItemStatusView(APIView):
             )
 
         # 2. 매칭 후보 및 소유권 확인 진행 중
-        candidate = item.candidates.exclude(status='REJECTED').order_by('-created_at').first()
+        candidate = item.candidates.filter(
+            status__in=MatchCandidate.ACTIVE_STATUSES
+        ).order_by('-created_at').first()
         if candidate:
             # 소유권 검증 객체(OwnershipCheck)가 연결된 경우
-            latest_check = getattr(candidate, 'ownership_checks', None)
-            check_obj = latest_check.order_by('-created_at').first() if latest_check else None
+            check_obj = candidate.ownership_checks.order_by('-created_at').first()
 
             if check_obj:
-                if check_obj.result == 'MATCHED':
+                if check_obj.result == OwnershipCheck.Result.MATCHED:
                     return (
                         'VERIFIED',
                         '소유권 일치',
@@ -372,7 +374,7 @@ class MyItemStatusView(APIView):
                             "button_label": "소유권 확인 결과 보기"
                         }
                     )
-                elif check_obj.result == 'ADDITIONAL_NEEDED':
+                elif check_obj.result == OwnershipCheck.Result.NEED_MORE:
                     return (
                         'VERIFYING',
                         '추가 확인 필요',
@@ -420,7 +422,7 @@ class MyHistoryView(APIView):
         completed_rooms = ChatRoom.objects.filter(
             Q(owner=request.user) | Q(finder=request.user),
             status='COMPLETED'
-        ).select_related('candidate__found_item').order_by('-completed_at')
+        ).select_related('candidate__found_item__image').order_by('-completed_at')
 
         history_list = []
         for room in completed_rooms:
@@ -432,7 +434,7 @@ class MyHistoryView(APIView):
                 "role": "OWNER" if is_owner else "FINDER",
                 "item_id": target_item.id,
                 "item_name": target_item.item_name,
-                "blurred_image_url": target_item.blurred_image_url,
+                "blurred_image_url": target_item.image.image_url,
                 "status": "COMPLETED",
                 "completed_at": room.completed_at,
             })

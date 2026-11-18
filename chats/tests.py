@@ -1,12 +1,10 @@
-from django.test import TestCase
-
-# Create your tests here.
-from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from items.models import FoundItem, LostItem, MatchCandidate, Notification
+from common.testing import make_candidate, make_found_item, make_image, make_lost_item
+from matching.models import MatchCandidate
+from notifications.models import Notification
 from chats.models import ChatRoom, ChatMessage
 
 User = get_user_model()
@@ -32,33 +30,28 @@ class ChatAndReturnAPITestCase(APITestCase):
         )
 
         # 2. 습득물 & 분실물 등록
-        self.found_item = FoundItem.objects.create(
-            finder=self.finder,
+        self.found_item = make_found_item(
+            self.finder,
+            image=make_image(self.finder, image_url='https://s3.example.com/found/15_blurred.jpg'),
             category='전자기기',
             item_name='무선 이어폰 케이스',
             color='검정색',
             brand='Apple',
-            found_location='중앙도서관 2층 열람실',
-            found_at=timezone.now(),
-            original_image_url='https://s3.example.com/found/15_orig.jpg',
-            blurred_image_url='https://s3.example.com/found/15_blurred.jpg',
             private_features='내부에 스티커 부착됨'
         )
-        self.lost_item = LostItem.objects.create(
-            owner=self.owner,
+        # 같은 분실물에 걸린 두 번째 습득물 (lost-found 쌍은 복합 UNIQUE라 별도 습득물 필요)
+        self.other_found_item = make_found_item(self.finder, item_name='다른 이어폰 케이스')
+        self.lost_item = make_lost_item(
+            self.owner,
             item_name='검정색 무선 이어폰 케이스'
         )
 
         # 3. 매칭 후보 2건 생성 (소유권 검증 완료 건 vs 검증 미완료 건)
-        self.verified_candidate = MatchCandidate.objects.create(
-            lost_item=self.lost_item,
-            found_item=self.found_item,
-            status='VERIFIED'
+        self.verified_candidate = make_candidate(
+            self.lost_item, self.found_item, status=MatchCandidate.Status.MATCHED
         )
-        self.pending_candidate = MatchCandidate.objects.create(
-            lost_item=self.lost_item,
-            found_item=self.found_item,
-            status='PENDING'
+        self.pending_candidate = make_candidate(
+            self.lost_item, self.other_found_item, status=MatchCandidate.Status.CANDIDATE
         )
 
     def test_chat_room_creation_validation_and_success(self):
@@ -93,8 +86,12 @@ class ChatAndReturnAPITestCase(APITestCase):
 
         # DB 상태 연동 확인: 분실물 상태가 CHATTING으로 바뀌고 양측에 CHAT_STARTED 알림이 생성되어야 함
         self.lost_item.refresh_from_db()
+        self.found_item.refresh_from_db()
         self.assertEqual(self.lost_item.status, 'CHATTING')
-        self.assertEqual(Notification.objects.filter(type='CHAT_STARTED').count(), 2)
+        self.assertEqual(self.found_item.status, 'CHATTING')
+        self.assertEqual(
+            Notification.objects.filter(type='CHAT_STARTED', target_type='CHAT_ROOM').count(), 2
+        )
 
     def test_chat_messages_send_and_list(self):
         """2 & 3. 채팅 메시지 전송 및 목록 조회 테스트 (POST/GET /chats/<id>/messages)"""
@@ -169,9 +166,12 @@ class ChatAndReturnAPITestCase(APITestCase):
         self.lost_item.refresh_from_db()
         self.found_item.refresh_from_db()
         self.verified_candidate.refresh_from_db()
+        self.pending_candidate.refresh_from_db()
         self.assertEqual(self.lost_item.status, 'COMPLETED')
         self.assertEqual(self.found_item.status, 'COMPLETED')
-        self.assertEqual(self.verified_candidate.status, 'COMPLETED')
+        # 반환된 후보는 MATCHED 유지, 같은 분실물에 걸린 다른 후보는 EXCLUDED로 종료
+        self.assertEqual(self.verified_candidate.status, 'MATCHED')
+        self.assertEqual(self.pending_candidate.status, 'EXCLUDED')
 
         # (예외) 이미 완료된 건 중복 완료 요청 -> 400
         res_duplicate = self.client.post(complete_url)

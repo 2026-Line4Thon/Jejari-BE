@@ -1,15 +1,16 @@
-from django.db import models
 from django.conf import settings
-from items.models import MatchCandidate
+from django.db import models
+
+from common.models import BaseModel
 
 
-class ChatRoom(models.Model):
-    STATUS_CHOICES = (
-        ('ACTIVE', '진행 중'),
-        ('COMPLETED', '반환 완료'),
-    )
+class ChatRoom(BaseModel):
+    class Status(models.TextChoices):
+        ACTIVE = 'ACTIVE', '진행 중'
+        COMPLETED = 'COMPLETED', '반환 완료'
+
     candidate = models.OneToOneField(
-        MatchCandidate,
+        'matching.MatchCandidate',
         on_delete=models.CASCADE,
         related_name='chat_room'
     )
@@ -23,16 +24,14 @@ class ChatRoom(models.Model):
         on_delete=models.CASCADE,
         related_name='finder_chats'
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     def is_participant(self, user):
         return user == self.owner or user == self.finder
 
 
-class ChatMessage(models.Model):
+class ChatMessage(BaseModel):
     chat_room = models.ForeignKey(
         ChatRoom,
         on_delete=models.CASCADE,
@@ -44,8 +43,6 @@ class ChatMessage(models.Model):
     )
     content = models.TextField()
     is_read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['created_at']
