@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.paginator import Paginator, EmptyPage
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.views import APIView
@@ -16,7 +17,7 @@ from .serializers import (
     ImageAnalyzeRequestSerializer,
     ImageAnalyzeResponseSerializer,
 )
-from .services import NoItemDetected, create_analyzed_image
+from .services import AnalysisUnavailable, NoItemDetected, create_analyzed_image
 
 
 # 1. 메인 홈 정보 조회 (GET /home)
@@ -124,6 +125,10 @@ class FoundItemDetailView(APIView):
 # 사진 분석 (C-02, D-02, D-03, S-01, S-02, S-04)
 # ---------------------------------------------------------------------------
 
+INVALID_IMAGE_MESSAGE = 'jpg, png 형식의 {limit}MB 이하 이미지만 업로드할 수 있습니다.'
+TAG_FIELDS = ('category', 'item_name', 'color', 'brand')
+
+
 class ItemImageAnalyzeView(APIView):
     """
     사진을 올리면 AI가 종류·물건명·색상·브랜드·특징을 추출하고,
@@ -133,42 +138,49 @@ class ItemImageAnalyzeView(APIView):
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    timeout_message = '분석 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.'
 
     @extend_schema(
         request={'multipart/form-data': ImageAnalyzeRequestSerializer},
         responses={
             201: ImageAnalyzeResponseSerializer,
-            400: OpenApiResponse(description='이미지 파일이 아니거나 용량 초과'),
+            400: OpenApiResponse(description='이미지 누락, jpg·png가 아님, 용량 초과'),
             422: OpenApiResponse(description='사진에서 물건을 찾지 못함'),
+            504: OpenApiResponse(description='AI 분석 시간 초과·실패'),
         },
     )
     def post(self, request):
         serializer = ImageAnalyzeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        upload = serializer.validated_data['image']
+
+        limit_mb = settings.IMAGE_MAX_UPLOAD_MB
+        invalid = Response(
+            {'detail': INVALID_IMAGE_MESSAGE.format(limit=limit_mb)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+        if upload.size > limit_mb * 1024 * 1024:
+            return invalid
 
         try:
-            item_image, analysis = create_analyzed_image(
-                request.user, serializer.validated_data['image']
-            )
-        except InvalidImage as exc:
-            return Response({'image': [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+            item_image, analysis = create_analyzed_image(request.user, upload)
+        except InvalidImage:
+            return invalid
         except NoItemDetected:
             return Response(
-                {'detail': '사진에서 물건을 찾지 못했어요. 물건이 잘 보이도록 다시 찍어 주세요.'},
+                {'detail': '사진에서 물건을 찾지 못했습니다. 다른 사진을 올려 주세요.'},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+        except AnalysisUnavailable:
+            return Response({'detail': self.timeout_message}, status=status.HTTP_504_GATEWAY_TIMEOUT)
 
+        tags = {field: getattr(analysis, field) for field in TAG_FIELDS}
+        tags['features'] = analysis.features
         data = {
             'image_id': item_image.id,
             'image_url': request.build_absolute_uri(item_image.image_url),
             'is_blurred': item_image.is_blurred,
-            'analyzed': analysis is not None,
-            'analysis': {
-                'category': analysis.category if analysis else None,
-                'item_name': analysis.item_name if analysis else None,
-                'color': analysis.color if analysis else None,
-                'brand': analysis.brand if analysis else None,
-                'features': analysis.features if analysis else [],
-            },
+            'tags': tags,
+            'unrecognized_fields': [field for field in TAG_FIELDS if tags[field] is None],
         }
         return Response(ImageAnalyzeResponseSerializer(data).data, status=status.HTTP_201_CREATED)

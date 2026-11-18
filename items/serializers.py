@@ -1,4 +1,3 @@
-from django.conf import settings
 from rest_framework import serializers
 
 from .models import FoundItem
@@ -50,16 +49,11 @@ class FoundItemDetailSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class ImageAnalyzeRequestSerializer(serializers.Serializer):
-    image = serializers.ImageField()
-
-    def validate_image(self, value):
-        limit_mb = settings.IMAGE_MAX_UPLOAD_MB
-        if value.size > limit_mb * 1024 * 1024:
-            raise serializers.ValidationError(f'이미지는 {limit_mb}MB 이하만 업로드할 수 있습니다.')
-        return value
+    # 형식·용량 오류는 명세상 detail 메시지로 내려주므로 뷰에서 검사
+    image = serializers.FileField()
 
 
-class ImageAnalysisResultSerializer(serializers.Serializer):
+class ImageTagsSerializer(serializers.Serializer):
     category = serializers.CharField(allow_null=True)
     item_name = serializers.CharField(allow_null=True)
     color = serializers.CharField(allow_null=True)
@@ -71,5 +65,7 @@ class ImageAnalyzeResponseSerializer(serializers.Serializer):
     image_id = serializers.IntegerField()
     image_url = serializers.CharField()
     is_blurred = serializers.BooleanField()
-    analyzed = serializers.BooleanField(help_text='AI 분석 성공 여부. false면 analysis 값이 모두 비어 있음')
-    analysis = ImageAnalysisResultSerializer()
+    tags = ImageTagsSerializer()
+    unrecognized_fields = serializers.ListField(
+        child=serializers.CharField(), help_text='AI가 인식하지 못해 null로 내려준 항목'
+    )

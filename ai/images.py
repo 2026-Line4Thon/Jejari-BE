@@ -13,6 +13,9 @@ class InvalidImage(ValueError):
     pass
 
 
+ALLOWED_FORMATS = ('JPEG', 'PNG')
+
+
 def load_image(file):
     """업로드 파일 → 방향 보정된 RGB 이미지. EXIF(위치 정보 등)는 이후 저장 시 제거됨."""
     try:
@@ -20,6 +23,8 @@ def load_image(file):
         image.load()
     except (UnidentifiedImageError, OSError) as exc:
         raise InvalidImage('이미지 파일을 읽을 수 없습니다.') from exc
+    if image.format not in ALLOWED_FORMATS:
+        raise InvalidImage(f'지원하지 않는 이미지 형식입니다: {image.format}')
     image = ImageOps.exif_transpose(image)
     if image.mode != 'RGB':
         image = image.convert('RGB')
