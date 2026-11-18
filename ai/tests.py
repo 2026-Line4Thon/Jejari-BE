@@ -71,3 +71,18 @@ class ImageProcessingTests(SimpleTestCase):
         import io
         with self.assertRaises(images.InvalidImage):
             images.load_image(io.BytesIO(b'not an image'))
+
+
+class PersonalInfoFilterTests(SimpleTestCase):
+    def test_features_with_personal_info_are_dropped(self):
+        raw = {
+            'is_item': True, 'category': '카드·신분증', 'item_name': '학생증', 'color': None,
+            'brand': None, 'sensitive': True,
+            'features': [
+                '학과: 컴퓨터 사이언스', '학생 번호: 20231234', '010-1234-5678',
+                '이름 홍길동', '파란 띠 디자인', '사진 부착',
+            ],
+        }
+        with mock.patch.object(client, 'chat_json', return_value=raw):
+            result = analyze_item_image(b'fake-jpeg')
+        self.assertEqual(result.features, ['파란 띠 디자인', '사진 부착'])

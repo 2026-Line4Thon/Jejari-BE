@@ -1,4 +1,5 @@
 import base64
+import re
 from dataclasses import asdict, dataclass, field
 
 from django.conf import settings
@@ -32,6 +33,17 @@ def _clean_text(value):
     return value or None
 
 
+# 프롬프트로 금지해도 모델이 사진 속 개인정보를 옮겨 적는 경우가 있어서 코드에서 한 번 더 거른다.
+# (숫자 3자리 이상 또는 개인정보 항목명이 들어간 특징은 버림)
+_PERSONAL_INFO_PATTERN = re.compile(
+    r'\d{3,}|이름|성명|학번|학생\s*번호|학과|전공|생년|연락처|전화|휴대폰\s*번호|카드\s*번호|계좌|주소|이메일|@'
+)
+
+
+def _is_safe_feature(text):
+    return not _PERSONAL_INFO_PATTERN.search(text)
+
+
 def analyze_item_image(jpeg_bytes):
     """
     사진(JPEG bytes) → ImageAnalysis.
@@ -58,7 +70,9 @@ def analyze_item_image(jpeg_bytes):
     if not isinstance(raw, dict) or not isinstance(raw.get('is_item'), bool):
         raise AIError('AI 응답 형식이 올바르지 않습니다.')
 
-    features = [f for f in (_clean_text(x) for x in raw.get('features') or []) if f]
+    features = [
+        f for f in (_clean_text(x) for x in raw.get('features') or []) if f and _is_safe_feature(f)
+    ]
     return ImageAnalysis(
         is_item=raw['is_item'],
         category=_clean_text(raw.get('category')),
