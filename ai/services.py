@@ -10,7 +10,7 @@ from .client import AIError
 
 __all__ = [
     'AIError', 'ImageAnalysis', 'analyze_item_image', 'summarize_item', 'embed_text', 'write_match_reasons',
-    'generate_ownership_questions', 'judge_ownership',
+    'generate_ownership_questions', 'judge_ownership', 'extract_known_features', 'write_feature_question',
 ]
 
 MAX_FEATURES = 5
@@ -196,3 +196,47 @@ def judge_ownership(qa, secret, public, allow_follow_up):
         else:
             follow_up = pairs[0]
     return result, follow_up
+
+
+def extract_known_features(tags, description):
+    """사진 분석 태그·사용자 설명 → 특징 항목별 값 dict (모르면 None)."""
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.FEATURE_EXTRACT_SCHEMA,
+        schema_name='feature_extract',
+        max_tokens=300,
+        messages=[
+            {'role': 'system', 'content': prompts.FEATURE_EXTRACT_SYSTEM},
+            {'role': 'user', 'content': json.dumps(
+                {'tags': tags or {}, 'description': description}, ensure_ascii=False
+            )},
+        ],
+    )
+    if not isinstance(raw, dict):
+        raise AIError('특징 추출 응답 형식이 올바르지 않습니다.')
+    return {step: _clean_text(raw.get(step)) for step in prompts.FEATURE_STEPS}
+
+
+_NOT_SURE_OPTION = re.compile(r'모르|모름|기억\s*(이\s*)?안|없어요|없습니다|아니요')
+
+
+def write_feature_question(step, known):
+    """항목(step) 하나에 대한 질문 문장과 선택지 3개."""
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.FEATURE_QUESTION_SCHEMA,
+        schema_name='feature_question',
+        max_tokens=200,
+        messages=[
+            {'role': 'system', 'content': prompts.FEATURE_QUESTION_SYSTEM},
+            {'role': 'user', 'content': json.dumps({'step': step, 'known': known}, ensure_ascii=False)},
+        ],
+    )
+    text = _clean_text(raw.get('text')) if isinstance(raw, dict) else None
+    options = [
+        o for o in (_clean_text(x) for x in (raw.get('options') or []))
+        if o and not _NOT_SURE_OPTION.search(o)  # 화면에서 따로 제공하는 「잘 모르겠어요」류는 제외
+    ] if text else []
+    if not text or len(options) < 2:
+        raise AIError('특징 질문을 만들지 못했습니다.')
+    return {'text': text, 'options': options[:3]}

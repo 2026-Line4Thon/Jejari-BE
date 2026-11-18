@@ -4,7 +4,7 @@ from rest_framework.exceptions import APIException, NotFound
 
 from places.models import Place
 
-from .models import FeatureChat, FoundItem, ItemImage, LostItem
+from .models import FeatureChat, FeatureChatTurn, FoundItem, ItemImage, LostItem
 
 
 # 1. 홈 화면 & 전체 목록 공용 습득물 카드 Serializer
@@ -233,3 +233,65 @@ class LostItemDetailSerializer(serializers.ModelSerializer):
         from matching.models import MatchCandidate
 
         return obj.candidates.filter(status__in=MatchCandidate.ACTIVE_STATUSES).count()
+
+
+# ---------------------------------------------------------------------------
+# AI 특징 구체화 (POST /items/lost/feature-chats ...)
+# ---------------------------------------------------------------------------
+
+class FeatureChatStartSerializer(serializers.Serializer):
+    image_id = serializers.IntegerField(required=False, allow_null=True)
+    description = serializers.CharField(
+        max_length=1000, required=False, allow_null=True, allow_blank=True
+    )
+
+    def validate(self, attrs):
+        attrs['description'] = _blank_to_none(attrs.get('description'))
+        image_id = attrs.pop('image_id', None)
+        if not image_id and not attrs['description']:
+            raise BadRequest('사진 또는 물건 설명 중 하나 이상을 입력해 주세요.')
+        attrs['image'] = None
+        if image_id:
+            attrs['image'] = ItemImage.objects.filter(
+                id=image_id, uploader=self.context['request'].user
+            ).first()
+            if attrs['image'] is None:
+                raise NotFound('이미지를 찾을 수 없습니다.')
+        return attrs
+
+
+class FeatureChatAnswerSerializer(serializers.Serializer):
+    step = serializers.ChoiceField(choices=FeatureChatTurn.StepCategory.choices)
+    answer = serializers.CharField(max_length=200, required=False, allow_null=True, allow_blank=True)
+    is_skipped = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        attrs['answer'] = _blank_to_none(attrs.get('answer'))
+        if not attrs['is_skipped'] and not attrs['answer']:
+            raise serializers.ValidationError({'answer': ['답변을 입력하거나 「잘 모르겠어요」를 선택해 주세요.']})
+        return attrs
+
+
+class FeatureQuestionSerializer(serializers.Serializer):
+    step = serializers.CharField()
+    text = serializers.CharField()
+    options = serializers.ListField(child=serializers.CharField())
+
+
+class FeatureValuesSerializer(serializers.Serializer):
+    category = serializers.CharField(allow_null=True)
+    color = serializers.CharField(allow_null=True)
+    size = serializers.CharField(allow_null=True)
+    material = serializers.CharField(allow_null=True)
+    shape = serializers.CharField(allow_null=True)
+    marks = serializers.CharField(allow_null=True)
+    brand = serializers.CharField(allow_null=True)
+
+
+class FeatureChatResponseSerializer(serializers.Serializer):
+    chat_id = serializers.IntegerField()
+    known = serializers.DictField(child=serializers.CharField(), required=False, help_text='시작 응답에만')
+    question = FeatureQuestionSerializer(allow_null=True, required=False)
+    is_finished = serializers.BooleanField()
+    summary = serializers.CharField(required=False, help_text='대화가 끝났을 때만')
+    features = FeatureValuesSerializer(required=False, help_text='대화가 끝났을 때만')

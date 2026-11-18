@@ -11,9 +11,13 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from ai.images import InvalidImage
 from matching.models import MatchCandidate
 
-from .models import FoundItem, ItemStatus, LostItem
+from . import feature_chat
+from .models import FeatureChat, FoundItem, ItemStatus, LostItem
 from .serializers import (
     FoundItemListSerializer,
+    FeatureChatAnswerSerializer,
+    FeatureChatResponseSerializer,
+    FeatureChatStartSerializer,
     FoundItemCreateResponseSerializer,
     FoundItemCreateSerializer,
     FoundItemDetailSerializer,
@@ -286,3 +290,103 @@ class FoundItemListCreateView(FoundItemListView):
             'message': '습득물이 등록되었습니다. 주인을 찾고 있어요.',
         }
         return Response(FoundItemCreateResponseSerializer(data).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# AI 특징 구체화 (C-04, S-03)
+# ---------------------------------------------------------------------------
+
+def _get_own_chat(request, chat_id):
+    chat = FeatureChat.objects.filter(id=chat_id, user=request.user).first()
+    if chat is None:
+        raise NotFound('대화를 찾을 수 없습니다.')
+    return chat
+
+
+def _chat_finished_response():
+    return Response({'detail': '이미 종료된 대화입니다.'}, status=status.HTTP_409_CONFLICT)
+
+
+def _finished_payload(chat_id, summary, features):
+    return {'chat_id': chat_id, 'question': None, 'is_finished': True, 'summary': summary, 'features': features}
+
+
+class FeatureChatStartView(APIView):
+    """사진·설명으로 이미 파악된 항목을 건너뛰고 첫 질문을 만든다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=FeatureChatStartSerializer,
+        responses={
+            201: FeatureChatResponseSerializer,
+            400: OpenApiResponse(description='사진·설명 모두 없음'),
+            404: OpenApiResponse(description='없거나 본인이 올리지 않은 이미지'),
+        },
+    )
+    def post(self, request):
+        serializer = FeatureChatStartSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        chat, known, question = feature_chat.start(
+            request.user, serializer.validated_data['image'], serializer.validated_data['description']
+        )
+        if question is None:  # 모든 항목을 이미 알고 있어 바로 종료
+            data = _finished_payload(chat.id, chat.summary, feature_chat.features_of(chat))
+            data['known'] = known
+        else:
+            data = {'chat_id': chat.id, 'known': known, 'question': question, 'is_finished': False}
+        return Response(FeatureChatResponseSerializer(data).data, status=status.HTTP_201_CREATED)
+
+
+class FeatureChatAnswerView(APIView):
+    """현재 질문에 답변. 다음 질문이 있으면 질문을, 끝났으면 요약을 반환."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=FeatureChatAnswerSerializer,
+        responses={
+            200: FeatureChatResponseSerializer,
+            400: OpenApiResponse(description='현재 질문과 다른 항목, 답변 누락'),
+            404: OpenApiResponse(description='없는 대화'),
+            409: OpenApiResponse(description='이미 종료된 대화'),
+        },
+    )
+    def post(self, request, chat_id):
+        chat = _get_own_chat(request, chat_id)
+        serializer = FeatureChatAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            question, finished = feature_chat.answer(chat, data['step'], data['answer'], data['is_skipped'])
+        except feature_chat.ChatFinished:
+            return _chat_finished_response()
+        except feature_chat.WrongStep as exc:
+            return Response(
+                {'detail': f'현재 질문 항목({exc.current_step})에 대한 답변이 아닙니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if finished:
+            payload = _finished_payload(chat.id, *finished)
+        else:
+            payload = {'chat_id': chat.id, 'question': question, 'is_finished': False}
+        return Response(FeatureChatResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class FeatureChatFinishView(APIView):
+    """사용자가 대화를 중간에 끝냄. 그때까지의 답변으로 요약 생성."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: FeatureChatResponseSerializer})
+    def post(self, request, chat_id):
+        chat = _get_own_chat(request, chat_id)
+        try:
+            summary, features = feature_chat.finish(chat)
+        except feature_chat.ChatFinished:
+            return _chat_finished_response()
+        # 명세상 종료 응답에는 question 키가 없음 (serializer는 allow_null 필드를 null로 채우므로 직접 응답)
+        payload = {'chat_id': chat.id, 'is_finished': True, 'summary': summary, 'features': features}
+        return Response(payload, status=status.HTTP_200_OK)
