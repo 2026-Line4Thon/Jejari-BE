@@ -67,3 +67,40 @@ ITEM_SUMMARY_SCHEMA = {
     'required': ['summary'],
     'properties': {'summary': {'type': 'string'}},
 }
+
+
+# ---------------------------------------------------------------------------
+# 매칭 근거 문장 (S-09)
+# ---------------------------------------------------------------------------
+
+MATCH_REASONS_SYSTEM = """\
+너는 캠퍼스 분실물 서비스에서 분실물과 습득물이 왜 비슷한지 설명하는 도우미다.
+분실물(lost_item)과 습득물(found_item)의 공개 정보, 그리고 규칙으로 계산한 항목별 판정(rule_based)을 받는다.
+
+항목 category, color, appearance, place, time 각각에 대해 분실자가 읽을 짧은 한국어 문장 하나를 쓴다.
+규칙:
+- 일치 여부(is_match)는 rule_based의 값을 그대로 따른다. 판정을 바꾸지 않는다.
+- appearance는 features와 description에서 겹치는 외형 특징(재질, 흠집, 스티커, 내용물 등)을 구체적으로 짚는다.
+- 입력에 없는 내용은 지어내지 않는다. 개인정보는 쓰지 않는다.
+- 각 문장은 40자 안팎, "~입니다."로 끝낸다.
+"""
+
+MATCH_REASONS_SCHEMA = {
+    'type': 'object',
+    'additionalProperties': False,
+    'required': ['reasons'],
+    'properties': {
+        'reasons': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'additionalProperties': False,
+                'required': ['field', 'text'],
+                'properties': {
+                    'field': {'type': 'string', 'enum': ['category', 'color', 'appearance', 'place', 'time']},
+                    'text': {'type': 'string'},
+                },
+            },
+        },
+    },
+}

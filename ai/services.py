@@ -8,7 +8,9 @@ from django.conf import settings
 from . import client, prompts
 from .client import AIError
 
-__all__ = ['AIError', 'ImageAnalysis', 'analyze_item_image', 'summarize_item', 'embed_text']
+__all__ = [
+    'AIError', 'ImageAnalysis', 'analyze_item_image', 'summarize_item', 'embed_text', 'write_match_reasons',
+]
 
 MAX_FEATURES = 5
 
@@ -111,3 +113,21 @@ def summarize_item(info):
 def embed_text(text):
     """설명문 → 임베딩 벡터."""
     return client.embed(text)
+
+
+def write_match_reasons(payload):
+    """두 물건의 공개 정보 + 규칙 기반 판정 → 항목별 근거 문장 목록 [{field, text}]."""
+    raw = client.chat_json(
+        model=settings.OPENAI_TEXT_MODEL,
+        schema=prompts.MATCH_REASONS_SCHEMA,
+        schema_name='match_reasons',
+        max_tokens=600,
+        messages=[
+            {'role': 'system', 'content': prompts.MATCH_REASONS_SYSTEM},
+            {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)},
+        ],
+    )
+    reasons = raw.get('reasons') if isinstance(raw, dict) else None
+    if not isinstance(reasons, list):
+        raise AIError('매칭 근거 응답 형식이 올바르지 않습니다.')
+    return reasons

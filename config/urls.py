@@ -12,6 +12,7 @@ urlpatterns = [
     path('', include('items.urls')),
     path('', include('notifications.urls')),
     path('', include('chats.urls')),
+    path('', include('matching.urls')),
     path('users/', include('accounts.user_urls')),
 ]
 
