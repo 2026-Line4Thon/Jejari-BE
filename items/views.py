@@ -14,6 +14,8 @@ from matching.models import MatchCandidate
 from .models import FoundItem, ItemStatus, LostItem
 from .serializers import (
     FoundItemListSerializer,
+    FoundItemCreateResponseSerializer,
+    FoundItemCreateSerializer,
     FoundItemDetailSerializer,
     ImageAnalyzeRequestSerializer,
     ImageAnalyzeResponseSerializer,
@@ -25,6 +27,7 @@ from .services import (
     AnalysisUnavailable,
     NoItemDetected,
     create_analyzed_image,
+    register_found_item,
     register_lost_item,
 )
 
@@ -247,3 +250,39 @@ class LostItemDetailView(APIView):
             raise PermissionDenied()
         serializer = LostItemDetailSerializer(lost_item, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# 습득물 등록 (D-05, E-01)
+# GET /items/found(목록)과 URL이 같아서 목록 뷰에 POST를 더한 뷰로 라우팅
+# ---------------------------------------------------------------------------
+
+class FoundItemListCreateView(FoundItemListView):
+    @extend_schema(
+        request=FoundItemCreateSerializer,
+        responses={
+            201: FoundItemCreateResponseSerializer,
+            400: OpenApiResponse(description='필수 값 누락, 인계인데 보관 장소 없음, 미래 습득 시각'),
+            404: OpenApiResponse(description='이미지·장소를 찾을 수 없음'),
+            504: OpenApiResponse(description='설명문 임베딩 생성 실패'),
+        },
+    )
+    def post(self, request):
+        """습득물을 저장하고, 커밋 후 백그라운드에서 자동 매칭을 실행한다."""
+        serializer = FoundItemCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            found_item = register_found_item(request.user, serializer.validated_data)
+        except AnalysisUnavailable:
+            return Response(
+                {'detail': '등록 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.'},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        data = {
+            'found_item_id': found_item.id,
+            'status': found_item.status,
+            'message': '습득물이 등록되었습니다. 주인을 찾고 있어요.',
+        }
+        return Response(FoundItemCreateResponseSerializer(data).data, status=status.HTTP_201_CREATED)
