@@ -6,8 +6,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from items.models import MatchCandidate, Notification
+from matching.models import MatchCandidate
+from matching.services import complete_return
 from .models import ChatRoom, ChatMessage
+from .services import create_chat_room
 from .serializers import (
     ChatRoomCreateSerializer,
     ChatRoomResponseSerializer,
@@ -30,7 +32,7 @@ class ChatRoomCreateView(APIView):
 
         try:
             candidate = MatchCandidate.objects.select_related(
-                'lost_item__owner', 'found_item__finder'
+                'lost_item__user', 'found_item__finder'
             ).get(id=candidate_id)
         except MatchCandidate.DoesNotExist:
             return Response(
@@ -38,14 +40,14 @@ class ChatRoomCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # items/models.py의 소유권 일치 상태값('VERIFIED') 확인
-        if candidate.status not in ('VERIFIED', 'COMPLETED'):
+        # 소유권 확인이 일치(MATCHED)한 후보만 채팅방 생성 가능
+        if candidate.status != MatchCandidate.Status.MATCHED:
             return Response(
                 {"detail": "소유권 확인이 완료되지 않아 채팅방을 생성할 수 없습니다."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        owner = candidate.lost_item.owner
+        owner = candidate.lost_item.user
         finder = candidate.found_item.finder
 
         if request.user not in (owner, finder):
@@ -54,26 +56,7 @@ class ChatRoomCreateView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        chat_room, created = ChatRoom.objects.get_or_create(
-            candidate=candidate,
-            defaults={'owner': owner, 'finder': finder, 'status': 'ACTIVE'}
-        )
-
-        # 채팅방 최초 생성 시 분실물 상태 변경 및 양측 알림 생성
-        if created:
-            lost_item = candidate.lost_item
-            if lost_item.status != 'COMPLETED':
-                lost_item.status = 'CHATTING'
-                lost_item.save(update_fields=['status'])
-
-            for target_user in (owner, finder):
-                Notification.objects.create(
-                    user=target_user,
-                    type='CHAT_STARTED',
-                    title='소유권 확인이 완료되었습니다.',
-                    message='채팅방에서 물품 반환 일정을 약속해보세요.',
-                    target_id=chat_room.id
-                )
+        chat_room, _ = create_chat_room(candidate)
 
         res_serializer = ChatRoomResponseSerializer(chat_room, context={'request': request})
         return Response(res_serializer.data, status=status.HTTP_200_OK)
@@ -88,7 +71,7 @@ class ChatMessageListCreateView(APIView):
 
     def get_chat_room(self, chat_id):
         try:
-            return ChatRoom.objects.select_related('candidate__found_item').get(id=chat_id)
+            return ChatRoom.objects.select_related('candidate__found_item__image').get(id=chat_id)
         except ChatRoom.DoesNotExist:
             return None
 
@@ -127,7 +110,7 @@ class ChatMessageListCreateView(APIView):
             "status": chat_room.status,
             "item_summary": {
                 "item_name": full_name,
-                "blurred_image_url": found_item.blurred_image_url,
+                "blurred_image_url": found_item.image.image_url,
             },
             "messages": msg_serializer.data
         }, status=status.HTTP_200_OK)
@@ -206,19 +189,8 @@ class ChatCompleteView(APIView):
         chat_room.completed_at = now
         chat_room.save(update_fields=['status', 'completed_at', 'updated_at'])
 
-        # 2. 매칭 후보, 분실물, 습득물 상태를 모두 COMPLETED로 동기화
-        candidate = chat_room.candidate
-        lost_item = candidate.lost_item
-        found_item = candidate.found_item
-
-        candidate.status = 'COMPLETED'
-        candidate.save(update_fields=['status'])
-
-        lost_item.status = 'COMPLETED'
-        lost_item.save(update_fields=['status'])
-
-        found_item.status = 'COMPLETED'
-        found_item.save(update_fields=['status'])
+        # 2. 분실물·습득물 COMPLETED 전환 + 같은 물건에 걸린 다른 후보 종료 (B의 상태 전환 함수)
+        lost_item, found_item = complete_return(chat_room.candidate)
 
         return Response({
             "chat_room_id": chat_room.id,

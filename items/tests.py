@@ -1,6 +1,3 @@
-from django.test import TestCase
-
-# Create your tests here.
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status
@@ -8,7 +5,9 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts.models import User
-from items.models import FoundItem, LostItem, MatchCandidate, Notification
+from common.testing import make_candidate, make_found_item, make_image, make_lost_item, make_place
+from matching.models import MatchCandidate
+from notifications.models import Notification
 
 
 class ItemsAPITestCase(APITestCase):
@@ -30,63 +29,53 @@ class ItemsAPITestCase(APITestCase):
 
         # 2. 습득물 데이터 생성 (총 12개: 페이지네이션 테스트용 + 반환완료 1개)
         now = timezone.now()
+        self.place = make_place(name='공학관')
         self.found_items = []
         for i in range(1, 13):
-            item = FoundItem.objects.create(
-                finder=self.other_user,
+            item = make_found_item(
+                self.other_user,
+                place=self.place,
+                image=make_image(
+                    self.other_user,
+                    image_url=f'https://s3.example.com/found/{i}_blurred.jpg',
+                    original_image_key=f'private/found/{i}_orig.jpg',
+                ),
                 category='전자기기',
                 item_name=f'테스트 습득물 {i}',
                 color='검정색',
                 brand='Apple',
-                found_location=f'공학관 {i}층 로비',
+                location_detail=f'{i}층 로비',
                 found_at=now - timedelta(hours=i),
-                storage_status='직접 보관 중',
-                original_image_url=f'https://s3.example.com/found/{i}_orig.jpg',
-                blurred_image_url=f'https://s3.example.com/found/{i}_blurred.jpg',
                 private_features=f'비밀 특징 {i}번 (절대 노출되면 안 됨)',
-                status='REGISTERED'
             )
             self.found_items.append(item)
 
         # 반환 완료된 습득물 1개 추가 (홈/목록에서 제외되어야 함)
-        self.completed_item = FoundItem.objects.create(
-            finder=self.other_user,
+        self.completed_item = make_found_item(
+            self.other_user,
             category='지갑/카드',
             item_name='반환완료된 지갑',
-            found_location='학생회관 1층',
             found_at=now - timedelta(days=1),
-            original_image_url='https://s3.example.com/found/done_orig.jpg',
-            blurred_image_url='https://s3.example.com/found/done_blurred.jpg',
             private_features='비밀번호 1234',
             status='COMPLETED'
         )
 
         # 3. 분실물 및 매칭 후보 생성 (진행 중 2건, 제외됨 1건 -> my_matching_count == 2 여야 함)
-        self.lost_item = LostItem.objects.create(
-            owner=self.user,
+        self.lost_item = make_lost_item(
+            self.user,
             item_name='검정색 무선 이어폰 케이스',
             status='CANDIDATE_FOUND'
         )
-        MatchCandidate.objects.create(
-            lost_item=self.lost_item,
-            found_item=self.found_items[0],
-            status='PENDING'
-        )
-        MatchCandidate.objects.create(
-            lost_item=self.lost_item,
-            found_item=self.found_items[1],
-            status='VERIFIED'
-        )
-        MatchCandidate.objects.create(
-            lost_item=self.lost_item,
-            found_item=self.found_items[2],
-            status='REJECTED'  # 제외된 후보는 카운트에서 빠져야 함
-        )
+        make_candidate(self.lost_item, self.found_items[0], status=MatchCandidate.Status.CANDIDATE)
+        make_candidate(self.lost_item, self.found_items[1], status=MatchCandidate.Status.MATCHED)
+        # 제외된 후보는 카운트에서 빠져야 함
+        make_candidate(self.lost_item, self.found_items[2], status=MatchCandidate.Status.EXCLUDED)
 
         # 4. 알림 생성 (본인 알림 2개: 안읽음 1, 읽음 1 / 타인 알림 1개)
         self.my_unread_noti = Notification.objects.create(
             user=self.user,
             type='MATCH_CANDIDATE',
+            target_type='CANDIDATE',
             title='새로운 매칭 후보가 발견되었어요!',
             message='유사한 습득물이 등록되었습니다.',
             target_id=1,
@@ -95,6 +84,7 @@ class ItemsAPITestCase(APITestCase):
         self.my_read_noti = Notification.objects.create(
             user=self.user,
             type='CHAT_STARTED',
+            target_type='CHAT_ROOM',
             title='채팅이 시작되었습니다.',
             message='습득자와 채팅을 진행해 주세요.',
             target_id=10,
@@ -103,6 +93,7 @@ class ItemsAPITestCase(APITestCase):
         self.other_user_noti = Notification.objects.create(
             user=self.other_user,
             type='MATCH_CANDIDATE',
+            target_type='CANDIDATE',
             title='타인의 알림',
             message='타인에게만 보여야 하는 알림입니다.',
             target_id=2,
@@ -130,6 +121,9 @@ class ItemsAPITestCase(APITestCase):
         self.assertIn('blurred_image_url', first_item)
         self.assertNotIn('private_features', first_item)
         self.assertNotIn('original_image_url', first_item)
+        self.assertNotIn('original_image_key', first_item)
+        self.assertNotIn('text_embedding', first_item)
+        self.assertEqual(first_item['found_location'], '공학관 12층 로비')  # 최신 등록순
 
     # ---------------------------------------------------------
     # 2. 습득물 전체 목록 조회 (GET /items/found)
@@ -166,6 +160,9 @@ class ItemsAPITestCase(APITestCase):
         # 비공개 특징이 상세 조회에서도 차단되는지 확인
         self.assertNotIn('private_features', res.data)
         self.assertNotIn('original_image_url', res.data)
+        self.assertNotIn('original_image_key', res.data)
+        self.assertNotIn('text_embedding', res.data)
+        self.assertEqual(res.data['storage_status'], '직접 보관 중')
 
         # 존재하지 않는 습득물 ID 조회 시 404 Not Found
         res_404 = self.client.get('/items/found/999999')

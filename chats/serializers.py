@@ -28,7 +28,7 @@ class ChatRoomResponseSerializer(serializers.ModelSerializer):
         full_name = f"{found_item.color} {found_item.item_name}".strip() if found_item.color else found_item.item_name
         return {
             "item_name": full_name,
-            "blurred_image_url": found_item.blurred_image_url,
+            "blurred_image_url": found_item.image.image_url,
         }
 
     def get_partner(self, obj):

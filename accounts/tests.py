@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User, EmailVerification
-from items.models import LostItem, FoundItem, MatchCandidate
+from common.testing import make_candidate, make_found_item, make_lost_item
 from chats.models import ChatRoom
 
 
@@ -76,50 +76,30 @@ class MyPageAPITestCase(APITestCase):
             is_verified=True
         )
 
-        # 2. 분실물(LostItem) 생성 (실제 모델 필드: owner, item_name, status)[cite: 2, 3]
-        self.lost_item_candidate = LostItem.objects.create(
-            owner=self.user,
-            item_name='검정색 가죽 지갑'
-        )
-        self.lost_item_waiting = LostItem.objects.create(
-            owner=self.user,
-            item_name='흰색 무선 이어폰'
-        )
-        self.other_lost_item = LostItem.objects.create(
-            owner=self.other_user,
-            item_name='타인의 우산'
-        )
+        # 2. 분실물(LostItem) 생성
+        self.lost_item_candidate = make_lost_item(self.user, item_name='검정색 가죽 지갑')
+        self.lost_item_waiting = make_lost_item(self.user, item_name='흰색 무선 이어폰')
+        self.other_lost_item = make_lost_item(self.other_user, item_name='타인의 우산')
 
-        # 3. 습득물(FoundItem) 생성 (필수 필드: found_location, found_at, original_image_url 포함)[cite: 2, 3]
-        self.found_item_match = FoundItem.objects.create(
-            finder=self.other_user,
-            category='지갑',
-            item_name='검정색 가죽 지갑',
-            found_location='학생회관 1층',
-            found_at=timezone.now(),
-            original_image_url='https://s3.example.com/found/21_orig.jpg',
-            blurred_image_url='https://s3.example.com/found/21_blurred.jpg'
+        # 3. 습득물(FoundItem) 생성
+        self.found_item_match = make_found_item(
+            self.other_user, category='지갑', item_name='검정색 가죽 지갑'
         )
-        self.found_item_completed = FoundItem.objects.create(
-            finder=self.other_user,
+        self.found_item_completed = make_found_item(
+            self.other_user,
             category='전자기기',
             item_name='검정색 무선 이어폰 케이스',
-            found_location='중앙도서관 2층',
-            found_at=timezone.now(),
-            original_image_url='https://s3.example.com/found/15_orig.jpg',
-            blurred_image_url='https://s3.example.com/found/15_blurred.jpg',
             status='COMPLETED'
         )
-        self.lost_item_completed = LostItem.objects.create(
-            owner=self.user,
+        self.lost_item_completed = make_lost_item(
+            self.user,
             item_name='검정색 무선 이어폰 케이스',
             status='COMPLETED'
         )
 
         # 4. 매칭 후보 및 활성 채팅방 연결 (lost_item_candidate -> CHATTING 상태)
-        self.candidate = MatchCandidate.objects.create(
-            lost_item=self.lost_item_candidate,
-            found_item=self.found_item_match
+        self.candidate = make_candidate(
+            self.lost_item_candidate, self.found_item_match, status='MATCHED'
         )
         self.active_chat = ChatRoom.objects.create(
             candidate=self.candidate,
@@ -129,9 +109,8 @@ class MyPageAPITestCase(APITestCase):
         )
 
         # 5. 반환 완료 채팅방 생성 (history 조회용)
-        self.completed_candidate = MatchCandidate.objects.create(
-            lost_item=self.lost_item_completed,
-            found_item=self.found_item_completed
+        self.completed_candidate = make_candidate(
+            self.lost_item_completed, self.found_item_completed, status='MATCHED'
         )
         self.completed_chat = ChatRoom.objects.create(
             candidate=self.completed_candidate,

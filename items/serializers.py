@@ -1,9 +1,12 @@
 from rest_framework import serializers
-from .models import FoundItem, Notification
+from .models import FoundItem
 
 
 # 1. 홈 화면 & 전체 목록 공용 습득물 카드 Serializer
 class FoundItemListSerializer(serializers.ModelSerializer):
+    blurred_image_url = serializers.CharField(source='image.image_url', read_only=True)
+    found_location = serializers.CharField(source='location_text', read_only=True)
+
     class Meta:
         model = FoundItem
         fields = [
@@ -15,8 +18,13 @@ class FoundItemListSerializer(serializers.ModelSerializer):
         ]
 
 
-# 2. 습득물 상세 조회 Serializer (비공개 특징 제외)
+# 2. 습득물 상세 조회 Serializer (private_features, 원본 이미지 키, 임베딩 제외)
 class FoundItemDetailSerializer(serializers.ModelSerializer):
+    blurred_image_url = serializers.CharField(source='image.image_url', read_only=True)
+    found_location = serializers.CharField(source='location_text', read_only=True)
+    place_id = serializers.IntegerField(read_only=True)
+    storage_status = serializers.CharField(source='get_storage_status_display', read_only=True)
+
     class Meta:
         model = FoundItem
         fields = [
@@ -26,23 +34,10 @@ class FoundItemDetailSerializer(serializers.ModelSerializer):
             'item_name',
             'color',
             'brand',
+            'place_id',
             'found_location',
             'found_at',
             'storage_status',
-            'created_at',
-        ]
-
-
-# 3. 알림 목록 Serializer
-class NotificationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Notification
-        fields = [
-            'id',
-            'type',
-            'title',
-            'message',
-            'target_id',
-            'is_read',
+            'storage_location',
             'created_at',
         ]
