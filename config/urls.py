@@ -10,6 +10,8 @@ urlpatterns = [
     path('docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('auth/', include('accounts.urls')),
     path('', include('items.urls')),
+    path('', include('chats.urls')),
+    path('users/', include('accounts.user_urls')),
 ]
 
 if settings.DEBUG:
