@@ -115,7 +115,10 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = BASE_DIR / 'media'  # 공개용 이미지 (블러 반영본)
+PRIVATE_MEDIA_ROOT = BASE_DIR / 'private_media'  # 비공개 원본, URL로 서빙하지 않음
+
+IMAGE_MAX_UPLOAD_MB = 10
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
