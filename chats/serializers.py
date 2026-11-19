@@ -67,3 +67,63 @@ class ChatMessageCreateSerializer(serializers.Serializer):
             'blank': '메시지 내용은 비어 있을 수 없습니다.'
         }
     )
+
+class ChatRoomListSerializer(serializers.ModelSerializer):
+    chat_room_id = serializers.IntegerField(source='id')
+    candidate_id = serializers.IntegerField(source='candidate.id')
+    item_summary = serializers.SerializerMethodField()
+    partner = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatRoom
+        fields = [
+            'chat_room_id',
+            'candidate_id',
+            'status',
+            'item_summary',
+            'partner',
+            'last_message',
+            'unread_count',
+            'created_at',
+        ]
+
+    def get_item_summary(self, obj):
+        found_item = obj.candidate.found_item
+        full_name = f"{found_item.color} {found_item.item_name}".strip() if found_item.color else found_item.item_name
+        image_url = found_item.image.image_url if getattr(found_item, 'image', None) else None
+        return {
+            "item_name": full_name,
+            "blurred_image_url": image_url,
+        }
+
+    def get_partner(self, obj):
+        request_user = self.context['request'].user
+        if request_user == obj.owner:
+            return {
+                "nickname": getattr(obj.finder, 'nickname', None) or f"익명학우{obj.finder.id}",
+                "role": "FINDER"
+            }
+        return {
+            "nickname": getattr(obj.owner, 'nickname', None) or f"익명학우{obj.owner.id}",
+            "role": "OWNER"
+        }
+
+    def get_last_message(self, obj):
+        # prefetch_related로 가져온 메시지 중 가장 마지막 메시지 추출
+        messages = list(obj.messages.all())
+        if not messages:
+            return None
+        last_msg = messages[-1]
+        return {
+            "content": last_msg.content,
+            "created_at": last_msg.created_at,
+        }
+
+    def get_unread_count(self, obj):
+        request_user = self.context['request'].user
+        return sum(
+            1 for msg in obj.messages.all()
+            if msg.sender_id != request_user.id and not msg.is_read
+        )
