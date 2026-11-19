@@ -1,16 +1,27 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Notification
-from .serializers import NotificationSerializer
+from .serializers import (
+    NotificationSerializer,
+    NotificationListResponseSerializer,
+    NotificationReadResponseSerializer,
+)
 
 
 # 알림 목록 조회 (GET /notifications)
 class NotificationListView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=['Notifications'],
+        summary='알림 목록 조회',
+        description='새 매칭 후보, 소유권 확인 결과, 채팅 시작 알림을 최신 시간순으로 조회합니다.',
+        responses={200: NotificationListResponseSerializer},
+    )
     def get(self, request):
         notifications = Notification.objects.filter(user=request.user)
         unread_count = notifications.filter(is_read=False).count()
@@ -29,6 +40,13 @@ class NotificationListView(APIView):
 class NotificationReadView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=['Notifications'],
+        summary='알림 읽음 처리',
+        description='사용자가 특정 알림을 눌렀을 때 해당 알림을 읽음(is_read: true) 상태로 업데이트합니다.',
+        request=None,
+        responses={200: NotificationReadResponseSerializer},
+    )
     def patch(self, request, notification_id):
         try:
             notification = Notification.objects.get(id=notification_id)
