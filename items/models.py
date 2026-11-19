@@ -144,11 +144,16 @@ class FeatureChat(BaseModel):
         blank=True,
         related_name='feature_chats',
     )
+    # ERD 문서 외 추가 컬럼: 대화를 시작할 때 사용자가 입력한 설명 (요약 생성에 사용)
+    input_description = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     is_finished = models.BooleanField(default=False)
 
 
 class FeatureChatTurn(BaseModel):
+    # 사진·설명에서 이미 파악한 항목도 턴으로 남김 (question에 이 표시, answer에 값)
+    KNOWN_QUESTION = '(사진·설명에서 파악한 정보)'
+
     class StepCategory(models.TextChoices):
         # 이 순서대로 질문 (순서는 코드로 고정)
         CATEGORY = 'category', '종류'
@@ -166,4 +171,4 @@ class FeatureChatTurn(BaseModel):
     is_skipped = models.BooleanField(default=False)  # "잘 모르겠어요"
 
     class Meta:
-        ordering = ['created_at']
+        ordering = ['created_at', 'id']
