@@ -44,5 +44,7 @@ jobs:
             sudo docker rm my-app || true
             sudo docker pull 893555057194.dkr.ecr.ap-northeast-2.amazonaws.com/jejari-be:latest
             sudo docker run -d -p 8000:8000 --env-file /home/ubuntu/prod.env --name my-app 893555057194.dkr.ecr.ap-northeast-2.amazonaws.com/jejari-be:latest
-            sudo docker cp my-app:/app/staticfiles/. /home/ubuntu/Jejari-BE/staticfiles/
+            sudo rm -rf /home/ubuntu/Jejari-BE/staticfiles/*
+            sudo docker cp my-app:/app/staticfiles/. - | tar -x -C /home/ubuntu/Jejari-BE/staticfiles/
+            sudo chmod -R 755 /home/ubuntu/Jejari-BE/staticfiles
             sudo docker image prune -f
