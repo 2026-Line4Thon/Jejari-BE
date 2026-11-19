@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.db.models import Q, Max
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.core.paginator import Paginator
 from rest_framework import status
@@ -14,14 +16,44 @@ from .services import create_chat_room
 from .serializers import (
     ChatRoomCreateSerializer,
     ChatRoomResponseSerializer,
+    ChatRoomListSerializer,
     ChatMessageSerializer,
     ChatMessageCreateSerializer,
 )
 
-
 class ChatRoomCreateView(APIView):
-    """1. 비공개 채팅방 생성 (POST /chats)"""
+    """
+    1-1. 내 채팅방 목록 조회 (GET /chats)
+    1-2. 비공개 채팅방 생성 (POST /chats)
+    """
     permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="내 채팅방 목록 조회",
+        responses={200: ChatRoomListSerializer(many=True)},
+        tags=["G. 채팅 및 반환"],
+    )
+    def get(self, request):
+        queryset = ChatRoom.objects.filter(
+            Q(owner=request.user) | Q(finder=request.user)
+        ).select_related(
+            'candidate__found_item__image', 'owner', 'finder'
+        ).prefetch_related(
+            'messages'
+        ).annotate(
+            last_activity=Coalesce(Max('messages__created_at'), 'created_at')
+        ).order_by('-last_activity')
+
+        # 선택적 상태 필터링 (?status=ACTIVE 또는 ?status=COMPLETED)
+        room_status = request.query_params.get('status')
+        if room_status in ('ACTIVE', 'COMPLETED'):
+            queryset = queryset.filter(status=room_status)
+
+        serializer = ChatRoomListSerializer(queryset, many=True, context={'request': request})
+        return Response({
+            "total_count": queryset.count(),
+            "chats": serializer.data
+        }, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="비공개 채팅방 생성",
@@ -67,6 +99,7 @@ class ChatRoomCreateView(APIView):
 
         res_serializer = ChatRoomResponseSerializer(chat_room, context={'request': request})
         return Response(res_serializer.data, status=status.HTTP_200_OK)
+
 
 
 class ChatMessageListCreateView(APIView):

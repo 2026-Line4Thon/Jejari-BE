@@ -1,3 +1,6 @@
+from django.db.models import Q, Max
+from django.db.models.functions import Coalesce
+
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -184,3 +187,52 @@ class ChatAndReturnAPITestCase(APITestCase):
             format='json'
         )
         self.assertEqual(res_msg_after.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_chat_room_list(self):
+        """5. 내 채팅방 목록 조회 API 테스트 (GET /chats)"""
+        # 활성 채팅방 1개 + 완료된 채팅방 1개 준비
+        active_room = ChatRoom.objects.create(
+            candidate=self.verified_candidate,
+            owner=self.owner,
+            finder=self.finder,
+            status='ACTIVE'
+        )
+        ChatMessage.objects.create(
+            chat_room=active_room,
+            sender=self.finder,
+            content='로비에서 뵙겠습니다.',
+            is_read=False
+        )
+
+        self.pending_candidate.status = MatchCandidate.Status.MATCHED
+        self.pending_candidate.save(update_fields=['status'])
+
+        ChatRoom.objects.create(
+            candidate=self.pending_candidate,
+            owner=self.owner,
+            finder=self.finder,
+            status='COMPLETED'
+        )
+
+        # (성공) 분실자 기준 전체 목록 조회 -> 2건, 안 읽은 메시지 1건, 마지막 메시지 내용 확인
+        self.client.force_authenticate(user=self.owner)
+        res_all = self.client.get('/chats')
+        self.assertEqual(res_all.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_all.data['total_count'], 2)
+
+        active_data = next(c for c in res_all.data['chats'] if c['chat_room_id'] == active_room.id)
+        self.assertEqual(active_data['unread_count'], 1)
+        self.assertEqual(active_data['last_message']['content'], '로비에서 뵙겠습니다.')
+        self.assertEqual(active_data['partner']['role'], 'FINDER')
+
+        # (성공) ?status=ACTIVE 쿼리 필터링 조회 -> 1건만 반환
+        res_active_only = self.client.get('/chats?status=ACTIVE')
+        self.assertEqual(res_active_only.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_active_only.data['total_count'], 1)
+        self.assertEqual(res_active_only.data['chats'][0]['status'], 'ACTIVE')
+
+        # (성공) 제3자 기준 조회 -> 참여한 채팅방이 없으므로 0건 반환
+        self.client.force_authenticate(user=self.stranger)
+        res_stranger = self.client.get('/chats')
+        self.assertEqual(res_stranger.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_stranger.data['total_count'], 0)
