@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from matching.models import MatchCandidate
 from matching.services import complete_return
@@ -22,6 +23,12 @@ class ChatRoomCreateView(APIView):
     """1. 비공개 채팅방 생성 (POST /chats)"""
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="비공개 채팅방 생성",
+        request=ChatRoomCreateSerializer,
+        responses={200: ChatRoomResponseSerializer},
+        tags=["G. 채팅 및 반환"],
+    )
     @transaction.atomic
     def post(self, request):
         serializer = ChatRoomCreateSerializer(data=request.data)
@@ -75,6 +82,29 @@ class ChatMessageListCreateView(APIView):
         except ChatRoom.DoesNotExist:
             return None
 
+    @extend_schema(
+        summary="채팅 메시지 목록 조회",
+        parameters=[
+            OpenApiParameter(
+                name='page',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=1,
+                description="페이지 번호 (기본값: 1)",
+            ),
+            OpenApiParameter(
+                name='size',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=30,
+                description="페이지당 메시지 개수 (기본값: 30)",
+            ),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["G. 채팅 및 반환"],
+    )
     def get(self, request, chat_id):
         chat_room = self.get_chat_room(chat_id)
         if not chat_room:
@@ -92,8 +122,11 @@ class ChatMessageListCreateView(APIView):
         # 상대방이 보낸 안 읽은 메시지 일괄 읽음 처리
         chat_room.messages.exclude(sender=request.user).filter(is_read=False).update(is_read=True)
 
-        page = int(request.query_params.get('page', 1))
-        size = int(request.query_params.get('size', 30))
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            size = max(1, int(request.query_params.get('size', 30)))
+        except ValueError:
+            page, size = 1, 30
 
         queryset = chat_room.messages.select_related('sender').order_by('created_at')
         paginator = Paginator(queryset, size)
@@ -110,11 +143,17 @@ class ChatMessageListCreateView(APIView):
             "status": chat_room.status,
             "item_summary": {
                 "item_name": full_name,
-                "blurred_image_url": found_item.image.image_url,
+                "blurred_image_url": found_item.image.image_url if found_item.image else None,
             },
             "messages": msg_serializer.data
         }, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="채팅 메시지 전송",
+        request=ChatMessageCreateSerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["G. 채팅 및 반환"],
+    )
     def post(self, request, chat_id):
         chat_room = self.get_chat_room(chat_id)
         if not chat_room:
@@ -158,6 +197,12 @@ class ChatCompleteView(APIView):
     """4. 반환 완료 처리 (POST /chats/<int:chat_id>/complete)"""
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="물품 반환 완료 처리",
+        request=None,
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["G. 채팅 및 반환"],
+    )
     @transaction.atomic
     def post(self, request, chat_id):
         try:

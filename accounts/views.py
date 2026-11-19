@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from .models import User, EmailVerification
 from items.models import LostItem, FoundItem
@@ -32,6 +33,12 @@ class EmailSendView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="학교 계정 인증번호 발송",
+        request=EmailSendSerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["A. 로그인 및 공통"],
+    )
     def post(self, request):
         serializer = EmailSendSerializer(data=request.data)
         if not serializer.is_valid():
@@ -76,7 +83,9 @@ class EmailSendView(APIView):
         return Response(
             {
                 "message": "인증번호가 발송되었습니다.",
-                "expires_in": 300
+                "expires_in": 300,
+                # 프론트엔드 Swagger 테스트 편의용 (실제 메일 서버 연동 후 제거)
+                "dev_code": verification_code,
             },
             status=status.HTTP_200_OK
         )
@@ -89,6 +98,12 @@ class EmailVerifyView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="인증번호 확인 및 로그인",
+        request=EmailVerifySerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["A. 로그인 및 공통"],
+    )
     def post(self, request):
         serializer = EmailVerifySerializer(data=request.data)
         if not serializer.is_valid():
@@ -163,6 +178,12 @@ class LogoutView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="로그아웃",
+        request=LogoutSerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["A. 로그인 및 공통"],
+    )
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
         if not serializer.is_valid():
@@ -192,6 +213,11 @@ class MyProfileView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="내 정보 및 인증 정보 조회",
+        responses={200: MyProfileSerializer},
+        tags=["H. 마이페이지"],
+    )
     def get(self, request):
         serializer = MyProfileSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -204,6 +230,21 @@ class MyItemListView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="내 등록 내역 목록 조회",
+        parameters=[
+            OpenApiParameter(
+                name='type',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                enum=['lost', 'found'],
+                description="조회할 물품 유형 ('lost' 또는 'found')",
+            ),
+        ],
+        responses={200: MyItemSerializer(many=True)},
+        tags=["H. 마이페이지"],
+    )
     def get(self, request):
         item_type = request.query_params.get('type')
         if item_type not in ('lost', 'found'):
@@ -222,7 +263,7 @@ class MyItemListView(APIView):
                     "id": item.id,
                     "item_type": "LOST",
                     "item_name": item.item_name,
-                    "thumbnail_url": item.image.image_url if item.image else None,  # 분실물 이미지가 없으면 null
+                    "thumbnail_url": item.image.image_url if item.image else None,
                     "status": status_code,
                     "status_label": status_label,
                     "created_at": item.created_at,
@@ -235,7 +276,7 @@ class MyItemListView(APIView):
                     "id": item.id,
                     "item_type": "FOUND",
                     "item_name": item.item_name,
-                    "thumbnail_url": item.image.image_url,
+                    "thumbnail_url": item.image.image_url if item.image else None,
                     "status": status_code,
                     "status_label": status_label,
                     "created_at": item.created_at,
@@ -281,6 +322,21 @@ class MyItemStatusView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="내 등록 건 진행 상태 조회",
+        parameters=[
+            OpenApiParameter(
+                name='type',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                enum=['lost', 'found'],
+                description="조회할 물품 유형 ('lost' 또는 'found')",
+            ),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["H. 마이페이지"],
+    )
     def get(self, request, item_id):
         item_type = request.query_params.get('type')
         if item_type not in ('lost', 'found'):
@@ -333,7 +389,6 @@ class MyItemStatusView(APIView):
         )
 
     def _build_progress_payload(self, item, item_type):
-        # 1. 채팅방이 개설된 상태 (소유권 일치 완료)
         chat_filter = (
             {'candidate__lost_item': item}
             if item_type == 'lost'
@@ -354,12 +409,10 @@ class MyItemStatusView(APIView):
                 }
             )
 
-        # 2. 매칭 후보 및 소유권 확인 진행 중
         candidate = item.candidates.filter(
             status__in=MatchCandidate.ACTIVE_STATUSES
         ).order_by('-created_at').first()
         if candidate:
-            # 소유권 검증 객체(OwnershipCheck)가 연결된 경우
             check_obj = candidate.ownership_checks.order_by('-created_at').first()
 
             if check_obj:
@@ -386,7 +439,6 @@ class MyItemStatusView(APIView):
                         }
                     )
 
-            # 매칭 후보만 있고 아직 검증 전인 경우
             return (
                 'CANDIDATE_FOUND',
                 '매칭 후보 있음',
@@ -398,7 +450,6 @@ class MyItemStatusView(APIView):
                 }
             )
 
-        # 3. 매칭 대기 중
         return (
             'WAITING',
             '매칭 대기 중',
@@ -418,6 +469,11 @@ class MyHistoryView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="내 반환 완료 내역 조회",
+        responses={200: MyHistorySerializer(many=True)},
+        tags=["H. 마이페이지"],
+    )
     def get(self, request):
         completed_rooms = ChatRoom.objects.filter(
             Q(owner=request.user) | Q(finder=request.user),
@@ -427,14 +483,14 @@ class MyHistoryView(APIView):
         history_list = []
         for room in completed_rooms:
             is_owner = (room.owner == request.user)
-            target_item = room.candidate.found_item  # 반환 물품 기준 블러 이미지 및 물품명 노출
+            target_item = room.candidate.found_item
 
             history_list.append({
                 "chat_room_id": room.id,
                 "role": "OWNER" if is_owner else "FINDER",
                 "item_id": target_item.id,
                 "item_name": target_item.item_name,
-                "blurred_image_url": target_item.image.image_url,
+                "blurred_image_url": target_item.image.image_url if target_item.image else None,
                 "status": "COMPLETED",
                 "completed_at": room.completed_at,
             })
