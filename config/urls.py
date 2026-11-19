@@ -14,6 +14,7 @@ urlpatterns = [
     path('', include('chats.urls')),
     path('', include('matching.urls')),
     path('users/', include('accounts.user_urls')),
+    path('', include('places.urls')),
 ]
 
 if settings.DEBUG:

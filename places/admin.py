@@ -1,8 +1,10 @@
+# places/admin.py
 from django.contrib import admin
-
 from .models import Place
 
 
 @admin.register(Place)
 class PlaceAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'latitude', 'longitude')
+    list_display = ['id', 'name', 'latitude', 'longitude', 'created_at']
+    search_fields = ['name']
+    ordering = ['id']
