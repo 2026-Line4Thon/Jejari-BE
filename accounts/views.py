@@ -25,6 +25,8 @@ from .serializers import (
     MyHistorySerializer,
 )
 
+TEST_JUDGE_EMAIL = "judge@university.ac.kr" 
+TEST_JUDGE_CODE = "123456"          
 
 class EmailSendView(APIView):
     """
@@ -48,8 +50,19 @@ class EmailSendView(APIView):
                     return Response({"detail": first_error}, status=status.HTTP_400_BAD_REQUEST)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        email = serializer.validated_data['email']
+        email = serializer.validated_data['email'].lower()
         now = timezone.now()
+
+        # 심사위원단 테스트 계정은 발송 횟수 제한(429) 및 실제 메일 발송 생략
+        if email == TEST_JUDGE_EMAIL:
+            return Response(
+                {
+                    "message": "인증번호가 발송되었습니다.",
+                    "expires_in": 300,
+                    "dev_code": TEST_JUDGE_CODE,
+                },
+                status=status.HTTP_200_OK
+            )
 
         # 최근 10분 내 발송 횟수 제한 확인 (최대 5회)
         recent_count = EmailVerification.objects.filter(
@@ -112,29 +125,37 @@ class EmailVerifyView(APIView):
         email = serializer.validated_data['email'].lower()
         code = serializer.validated_data['code']
 
-        # 가장 최근에 발송된 미사용 인증 내역 조회
-        verification = EmailVerification.objects.filter(
-            email=email,
-            is_used=False
-        ).order_by('-created_at').first()
+        # 심사위원단 테스트 계정일 경우 마스터 번호만 확인하고 DB 검증 우회
+        if email == TEST_JUDGE_EMAIL:
+            if code != TEST_JUDGE_CODE:
+                return Response(
+                    {"detail": "인증번호가 일치하지 않습니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            # 가장 최근에 발송된 미사용 인증 내역 조회
+            verification = EmailVerification.objects.filter(
+                email=email,
+                is_used=False
+            ).order_by('-created_at').first()
 
-        # 1. 인증 내역이 없거나 만료 시간이 지난 경우
-        if not verification or verification.expires_at < timezone.now():
-            return Response(
-                {"detail": "인증번호가 만료되었습니다. 재발송 후 다시 시도해주세요."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # 1. 인증 내역이 없거나 만료 시간이 지난 경우
+            if not verification or verification.expires_at < timezone.now():
+                return Response(
+                    {"detail": "인증번호가 만료되었습니다. 재발송 후 다시 시도해주세요."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        # 2. 인증번호 불일치
-        if verification.code != code:
-            return Response(
-                {"detail": "인증번호가 일치하지 않습니다."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # 2. 인증번호 불일치
+            if verification.code != code:
+                return Response(
+                    {"detail": "인증번호가 일치하지 않습니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        # 인증 성공 처리 (재사용 방지)
-        verification.is_used = True
-        verification.save(update_fields=['is_used'])
+            # 인증 성공 처리 (재사용 방지)
+            verification.is_used = True
+            verification.save(update_fields=['is_used'])
 
         # 3. 기존 유저 조회 또는 신규 유저 자동 생성
         user, is_new_user = User.objects.get_or_create(
