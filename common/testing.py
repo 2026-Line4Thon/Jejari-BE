@@ -29,10 +29,12 @@ def make_place(**kwargs):
     from places.models import Place
 
     n = next(_seq)
-    kwargs.setdefault('name', f'테스트건물{n}')
+    name = kwargs.pop('name', f'테스트건물{n}')
     kwargs.setdefault('latitude', '37.5000000')
     kwargs.setdefault('longitude', '127.0000000')
-    return Place.objects.create(**kwargs)
+    # places 0002 마이그레이션이 테스트 DB에도 캠퍼스 건물을 넣으므로, 같은 이름이면 좌표만 테스트 값으로 맞춰 재사용
+    place, _ = Place.objects.update_or_create(name=name, defaults=kwargs)
+    return place
 
 
 def make_image(uploader, **kwargs):
