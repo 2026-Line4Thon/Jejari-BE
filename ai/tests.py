@@ -130,3 +130,21 @@ class CategoryNormalizeTests(SimpleTestCase):
         self.assertEqual(result.category, '우산')
         self.assertIsNone(result.color)
         self.assertIsNone(result.brand)
+
+
+class TransparentImageTests(SimpleTestCase):
+    def test_transparent_background_becomes_white(self):
+        import io as _io
+
+        image = Image.new('RGBA', (40, 40), (0, 0, 0, 0))  # 완전 투명
+        for x in range(10, 30):
+            for y in range(10, 30):
+                image.putpixel((x, y), (0, 0, 0, 255))  # 가운데 검은 물건
+        buffer = _io.BytesIO()
+        image.save(buffer, format='PNG')
+        buffer.seek(0)
+
+        loaded = images.load_image(buffer)
+        self.assertEqual(loaded.mode, 'RGB')
+        self.assertEqual(loaded.getpixel((2, 2)), (255, 255, 255))  # 배경은 흰색
+        self.assertEqual(loaded.getpixel((20, 20)), (0, 0, 0))  # 물건은 그대로
