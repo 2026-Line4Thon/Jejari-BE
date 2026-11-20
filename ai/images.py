@@ -26,9 +26,21 @@ def load_image(file):
     if image.format not in ALLOWED_FORMATS:
         raise InvalidImage(f'지원하지 않는 이미지 형식입니다: {image.format}')
     image = ImageOps.exif_transpose(image)
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    return image
+    return _to_rgb_on_white(image)
+
+
+def _to_rgb_on_white(image):
+    """
+    RGB로 변환. 투명 배경(PNG 등)은 그냥 convert('RGB')하면 검은색이 되므로 흰 배경 위에 합성한다.
+    (검은 물건이 검은 배경에 묻혀 안 보이는 문제 방지)
+    """
+    if image.mode == 'P' and 'transparency' in image.info:
+        image = image.convert('RGBA')
+    if image.mode in ('RGBA', 'LA'):
+        background = Image.new('RGB', image.size, (255, 255, 255))
+        background.paste(image, mask=image.getchannel('A'))
+        return background
+    return image.convert('RGB') if image.mode != 'RGB' else image
 
 
 def resized(image, max_side):
