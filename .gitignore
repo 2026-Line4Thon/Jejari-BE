@@ -269,3 +269,7 @@ $RECYCLE.BIN/
 # 업로드 이미지 (로컬)
 media/
 private_media/
+
+# 시드 사진·실제 시드 데이터 (출처가 외부 사진이라 커밋하지 않음)
+seed/photos/
+# seed/seed_items.csv 는 커밋 (사진만 제외)

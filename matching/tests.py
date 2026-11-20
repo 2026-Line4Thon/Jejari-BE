@@ -44,6 +44,8 @@ class ScoringTests(SimpleTestCase):
     def test_color_synonyms(self):
         self.assertTrue(scoring.color_match('네이비', '남색'))
         self.assertTrue(scoring.color_match('검정', '블랙'))
+        self.assertTrue(scoring.color_match('아이보리', '흰색'))
+        self.assertTrue(scoring.color_match('붉은색', '빨강'))
         self.assertFalse(scoring.color_match('남색', '빨간색'))
 
     def test_tag_score_only_compares_known_fields(self):
@@ -56,7 +58,7 @@ class ScoringTests(SimpleTestCase):
         self.assertTrue(scoring.category_match('지갑', '카드지갑'))
 
     def test_place_and_time_decay(self):
-        self.assertEqual(scoring.place_score(facts(same_place=False, distance_m=400)), 0.5)
+        self.assertEqual(scoring.place_score(facts(same_place=False, distance_m=200)), 0.5)
         self.assertEqual(scoring.place_score(facts(same_place=False, distance_m=2000)), 0.0)
         self.assertEqual(scoring.time_score(facts(gap_hours=36)), 0.5)
         self.assertEqual(scoring.time_score(facts(gap_hours=100)), 0.0)

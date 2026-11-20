@@ -105,3 +105,28 @@ class SummarizeItemTests(SimpleTestCase):
         with mock.patch.object(client, 'chat_json', return_value={'summary': ' '}):
             with self.assertRaises(AIError):
                 summarize_item({'category': '지갑'})
+
+
+class CategoryNormalizeTests(SimpleTestCase):
+    def test_keywords_override_generic_category(self):
+        from ai.services import normalize_category
+
+        self.assertEqual(normalize_category('기타', '검은색 우산'), '우산')
+        self.assertEqual(normalize_category('기타', '검은색 무선 이어폰 케이스'), '이어폰')
+        self.assertEqual(normalize_category('카드·신분증', '흰색 가죽 카드 지갑'), '지갑')  # 지갑이 카드보다 먼저
+        self.assertEqual(normalize_category('기타', '분홍색 테이크아웃 컵'), '텀블러·물병')
+        self.assertEqual(normalize_category('기타', '연보라색 보조배터리'), '전자기기')
+        self.assertEqual(normalize_category('기타', '하늘색 노트북 파우치'), '전자기기')  # 노트북이 노트보다 먼저
+        self.assertEqual(normalize_category('지갑', None), '지갑')
+        self.assertEqual(normalize_category('기타', '이상한 물건'), '기타')
+
+    def test_no_value_strings_become_none(self):
+        raw = {
+            'is_item': True, 'category': '기타', 'item_name': '검은색 우산', 'color': '없음',
+            'brand': 'N/A', 'features': [], 'sensitive': False,
+        }
+        with mock.patch.object(client, 'chat_json', return_value=raw):
+            result = analyze_item_image(b'x')
+        self.assertEqual(result.category, '우산')
+        self.assertIsNone(result.color)
+        self.assertIsNone(result.brand)

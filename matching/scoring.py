@@ -13,7 +13,8 @@ WEIGHTS = {'embedding': 0.5, 'tag': 0.2, 'place': 0.2, 'time': 0.1}
 EMBEDDING_SIM_FLOOR = 0.25
 EMBEDDING_SIM_CEIL = 0.85
 
-PLACE_ZERO_DISTANCE_M = 800  # 이 거리 이상 떨어지면 장소 점수 0
+# 이 거리 이상 떨어지면 장소 점수 0. 시드된 캠퍼스(places 0002)는 건물 간 최대 약 350m라 400m로 설정
+PLACE_ZERO_DISTANCE_M = 400
 TIME_ZERO_GAP_HOURS = 72  # 분실 추정 시간 이후 이만큼 지나 습득하면 시간 점수 0
 
 MIN_TOTAL_SCORE = 0.5  # 이 점수 이상만 후보로 저장
@@ -22,11 +23,11 @@ LABEL_THRESHOLDS = (('HIGH', 0.75), ('MEDIUM', 0.6), ('LOW', 0.0))
 # 같은 색으로 볼 표현 묶음 (사용자·AI가 서로 다르게 쓰는 경우)
 COLOR_GROUPS = [
     {'검정', '검은', '검은색', '블랙', '까만', '까만색', '흑색'},
-    {'흰', '흰색', '하얀', '하얀색', '화이트', '백색'},
+    {'흰', '흰색', '하얀', '하얀색', '화이트', '백색', '아이보리', '크림', '미색'},
     {'회색', '그레이', '쥐색', '은색', '실버'},
     {'남색', '네이비', '감색', '진파랑', '진한 파랑'},
     {'파랑', '파란', '파란색', '블루', '하늘색', '스카이블루'},
-    {'빨강', '빨간', '빨간색', '레드', '적색'},
+    {'빨강', '빨간', '빨간색', '붉은', '레드', '적색'},
     {'분홍', '분홍색', '핑크', '연분홍'},
     {'노랑', '노란', '노란색', '옐로', '옐로우'},
     {'초록', '초록색', '녹색', '그린', '연두', '연두색', '카키'},
@@ -57,14 +58,29 @@ def _norm(text):
     return (text or '').replace(' ', '').lower()
 
 
+def _strip_saek(text):
+    """'붉은색' → '붉은'. 색 이름 끝의 '색'을 떼서 비교."""
+    return text[:-1] if len(text) > 1 and text.endswith('색') else text
+
+
 def _color_key(color):
+    """
+    같은 색으로 볼 묶음 번호. 단순 포함 비교만 하면 '붉은색'에 '은색'(회색 묶음)이 걸리므로
+    1) '색'을 뗀 단어가 정확히 같은 묶음을 먼저 찾고 2) 없으면 가장 길게 포함되는 단어의 묶음을 쓴다.
+    """
     if not color:
         return None
-    value = color.strip().lower()
+    value = _norm(color)
+    base = _strip_saek(value)
+    best, best_len = None, 0
     for i, group in enumerate(COLOR_GROUPS):
-        if any(word in value for word in group):
-            return i
-    return _norm(value)
+        for word in group:
+            word = _strip_saek(_norm(word))
+            if base == word:
+                return i
+            if word in value and len(word) > best_len:
+                best, best_len = i, len(word)
+    return best if best is not None else value
 
 
 def category_match(a, b):

@@ -1,0 +1,4 @@
+﻿row_type,pair_id,photo_file,source_url,category,item_name,color,brand,features,description,place,location_detail,time_from,time_to,storage_status,storage_location,private_features,memo
+found,EX1,ex_wallet_navy.jpg,https://unsplash.com/photos/...,,,,,,열람실 책상 위에 있었어요.,중앙도서관,3층 열람실,2026-11-20 15:20,,HANDED_OVER,중앙도서관 1층 안내데스크,안쪽 포켓에 고양이 스티커가 붙어 있음,예시 행: 지우고 쓰세요
+lost,EX1,,,지갑,남색 지갑,남색,,가죽;모서리 해짐,학생증이 들어 있어요.,중앙도서관,3층,2026-11-20 13:00,2026-11-20 15:00,,,,예시 행: 지우고 쓰세요
+found,,ex_wallet_black.jpg,https://pexels.com/photo/...,,,,,,,학생회관,1층 로비,2026-11-20 12:10,,SELF,,지퍼 고리에 빨간 끈,예시 행: 짝 없는 비슷한 물건(헷갈리게 하는 용도)

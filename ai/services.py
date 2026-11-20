@@ -48,6 +48,44 @@ def _is_safe_feature(text):
     return not _PERSONAL_INFO_PATTERN.search(text)
 
 
+# 모델이 종류를 '기타'로 고르거나 헷갈리는 경우가 있어서 물건명 키워드로 한 번 더 정한다.
+# 위에서부터 먼저 맞는 것을 쓰므로 "카드 지갑"은 '카드'보다 '지갑'이 먼저 걸리도록 순서를 둔다.
+_CATEGORY_KEYWORDS = [
+    ('지갑', '지갑'),
+    ('이어폰', '이어폰'), ('헤드폰', '이어폰'), ('헤드셋', '이어폰'), ('에어팟', '이어폰'), ('버즈', '이어폰'),
+    ('휴대폰', '휴대폰'), ('스마트폰', '휴대폰'), ('아이폰', '휴대폰'), ('갤럭시', '휴대폰'),
+    ('보조배터리', '전자기기'), ('배터리', '전자기기'), ('충전기', '전자기기'), ('마우스', '전자기기'),
+    ('키보드', '전자기기'), ('태블릿', '전자기기'), ('노트북', '전자기기'), ('워치', '전자기기'),
+    ('우산', '우산'),
+    ('텀블러', '텀블러·물병'), ('물병', '텀블러·물병'), ('보온병', '텀블러·물병'), ('컵', '텀블러·물병'),
+    ('백팩', '가방'), ('가방', '가방'), ('파우치', '가방'), ('백', '가방'),
+    ('필통', '책·문구'), ('노트', '책·문구'), ('책', '책·문구'), ('펜', '책·문구'),
+    ('학생증', '카드·신분증'), ('신분증', '카드·신분증'), ('등록증', '카드·신분증'), ('면허증', '카드·신분증'),
+    ('카드', '카드·신분증'),
+    ('열쇠', '열쇠'),
+    ('시계', '액세서리'), ('안경', '액세서리'), ('반지', '액세서리'), ('목걸이', '액세서리'), ('키링', '액세서리'),
+    ('모자', '의류'), ('목도리', '의류'), ('장갑', '의류'),
+]
+
+
+def normalize_category(category, item_name):
+    """물건명에 종류 키워드가 있으면 그 종류로, 없으면 모델이 고른 종류 그대로."""
+    name = (item_name or '').replace(' ', '')
+    for keyword, mapped in _CATEGORY_KEYWORDS:
+        if keyword in name:
+            return mapped
+    return category
+
+
+_NO_VALUE = {'없음', '없다', '모름', '알수없음', '알 수 없음', 'n/a', 'none', 'null'}
+
+
+def _clean_value(value):
+    """'없음'처럼 값이 없다는 뜻의 문자열은 None으로."""
+    value = _clean_text(value)
+    return None if value and value.lower() in _NO_VALUE else value
+
+
 def analyze_item_image(jpeg_bytes):
     """
     사진(JPEG bytes) → ImageAnalysis.
@@ -77,12 +115,13 @@ def analyze_item_image(jpeg_bytes):
     features = [
         f for f in (_clean_text(x) for x in raw.get('features') or []) if f and _is_safe_feature(f)
     ]
+    item_name = _clean_value(raw.get('item_name'))
     return ImageAnalysis(
         is_item=raw['is_item'],
-        category=_clean_text(raw.get('category')),
-        item_name=_clean_text(raw.get('item_name')),
-        color=_clean_text(raw.get('color')),
-        brand=_clean_text(raw.get('brand')),
+        category=normalize_category(_clean_value(raw.get('category')), item_name),
+        item_name=item_name,
+        color=_clean_value(raw.get('color')),
+        brand=_clean_value(raw.get('brand')),
         features=features[:MAX_FEATURES],
         sensitive=bool(raw.get('sensitive')),
     )
