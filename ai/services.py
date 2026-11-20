@@ -187,9 +187,10 @@ def _question_pairs(items):
     return pairs
 
 
-def generate_ownership_questions(secret, public, count=2):
+def generate_ownership_questions(secret, public, max_count=2):
     """
-    습득자의 비공개 정보(secret) → 정답이 드러나지 않는 질문 [{text, expected}] count개.
+    습득자의 비공개 정보(secret) → 정답이 드러나지 않는 질문 [{text, expected}] 1~max_count개.
+    secret에 담긴 서로 다른 사실 수만큼만 만듭니다 (사실이 하나면 질문도 하나).
     expected(기대 답변)는 서버에만 저장하고 응답에 내려주지 않습니다.
     """
     raw = client.chat_json(
@@ -198,14 +199,14 @@ def generate_ownership_questions(secret, public, count=2):
         schema_name='ownership_questions',
         max_tokens=500,
         messages=[
-            {'role': 'system', 'content': prompts.OWNERSHIP_QUESTIONS_SYSTEM.format(count=count)},
+            {'role': 'system', 'content': prompts.OWNERSHIP_QUESTIONS_SYSTEM.format(max_count=max_count)},
             {'role': 'user', 'content': json.dumps({'secret': secret, 'public': public}, ensure_ascii=False)},
         ],
     )
     questions = _question_pairs(raw.get('questions') if isinstance(raw, dict) else None)
-    if len(questions) < count:
+    if not questions:
         raise AIError('소유권 확인 질문을 만들지 못했습니다.')
-    return questions[:count]
+    return questions[:max_count]
 
 
 def judge_ownership(qa, secret, public, allow_follow_up):

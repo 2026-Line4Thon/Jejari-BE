@@ -23,7 +23,8 @@ from .models import MatchCandidate, OwnershipCheck
 from .services import refresh_waiting_status
 
 MAX_ATTEMPTS = 2
-QUESTION_COUNT = 2
+# 비공개 특징에 담긴 사실 수만큼 1~2개 (사실이 하나면 질문도 하나)
+MAX_QUESTIONS = 2
 
 OPEN_RESULTS = (OwnershipCheck.Result.PENDING, OwnershipCheck.Result.NEED_MORE)
 
@@ -73,15 +74,16 @@ def public_questions(questions, only_unanswered_from=None):
 def _secret_and_public(found):
     """
     질문·판정에 쓰는 습득자 정보.
-    secret: 비공개 특징 + 공개 features에 없는 AI 태그 / public: 화면·매칭 근거에 드러나는 정보(설명문 포함)
+    secret: 습득자가 적은 비공개 특징. 비어 있을 때만 공개 features에 없는 AI 태그로 대신함
+            (AI 태그는 주인도 기억하기 어려운 내용이 섞여 있어서, 비공개 특징이 있으면 쓰지 않음)
+    public: 화면·매칭 근거에 드러나는 정보(설명문 포함) → 질문하면 안 되는 정보
     """
-    public_features = set(found.features or [])
-    ai_features = (found.image.ai_tags or {}).get('features') or [] if found.image_id else []
-    hidden_tags = [f for f in ai_features if f not in public_features]
-    secret = {
-        'private_features': found.private_features,
-        'hidden_ai_tags': hidden_tags,
-    }
+    if found.private_features and found.private_features.strip():
+        secret = {'private_features': found.private_features.strip()}
+    else:
+        public_features = set(found.features or [])
+        ai_features = (found.image.ai_tags or {}).get('features') or [] if found.image_id else []
+        secret = {'hidden_ai_tags': [f for f in ai_features if f not in public_features]}
     public = {
         'category': found.category,
         'item_name': found.item_name,
@@ -132,7 +134,7 @@ def start_check(candidate):
     # AI 호출은 잠금 밖에서 (느린 호출 동안 행을 잡지 않도록)
     secret, public = _secret_and_public(candidate.found_item)
     try:
-        generated = generate_ownership_questions(secret, public, count=QUESTION_COUNT)
+        generated = generate_ownership_questions(secret, public, max_count=MAX_QUESTIONS)
     except AIError as exc:
         raise JudgeUnavailable from exc
 
