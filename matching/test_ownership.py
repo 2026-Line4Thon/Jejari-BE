@@ -74,8 +74,23 @@ class StartCheckTests(OwnershipTestBase):
 
         secret, public = self.ai['questions'].call_args.args
         self.assertEqual(secret['private_features'], '안쪽에 고양이 스티커, 학생증 들어 있음')
-        self.assertEqual(secret['hidden_ai_tags'], ['모서리 해짐'])  # 공개 features에 없는 AI 태그만
+        self.assertNotIn('hidden_ai_tags', secret)  # 비공개 특징이 있으면 AI 태그는 쓰지 않음
         self.assertNotIn('private_features', public)
+
+    def test_ai_tags_used_only_without_private_features(self):
+        self.found.private_features = ''
+        self.found.save()
+        self.start()
+        secret, _ = self.ai['questions'].call_args.args
+        self.assertEqual(secret, {'hidden_ai_tags': ['모서리 해짐']})  # 공개 features에 없는 AI 태그만
+
+    def test_single_question_when_one_fact(self):
+        self.ai['questions'].return_value = QUESTIONS[:1]
+        res = self.start()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(res.data['questions']), 1)
+        res = self.answer(res.data['check_id'], [{'question_id': 1, 'answer': '고양이요'}])
+        self.assertEqual(res.data['result'], 'MATCHED')
 
     def test_reuses_open_check(self):
         first = self.start()

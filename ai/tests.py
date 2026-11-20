@@ -164,3 +164,21 @@ class ExtractKnownFeaturesTests(SimpleTestCase):
             'category': '우산', 'color': '카키색', 'size': None, 'material': None,
             'shape': '접이식', 'marks': None, 'brand': None,
         })
+
+
+class OwnershipQuestionCountTests(SimpleTestCase):
+    def test_returns_one_to_max_questions(self):
+        from ai.services import generate_ownership_questions
+
+        one = {'questions': [{'text': '뒷면에 어떤 표시가 있었나요?', 'expected': '빨간 점 3개'}]}
+        with mock.patch.object(client, 'chat_json', return_value=one) as chat:
+            self.assertEqual(len(generate_ownership_questions({'private_features': 'x'}, {}, max_count=2)), 1)
+        self.assertIn('최대 2개', chat.call_args.kwargs['messages'][0]['content'])
+
+        three = {'questions': [{'text': f'q{i}', 'expected': f'e{i}'} for i in range(3)]}
+        with mock.patch.object(client, 'chat_json', return_value=three):
+            self.assertEqual(len(generate_ownership_questions({}, {}, max_count=2)), 2)
+
+        with mock.patch.object(client, 'chat_json', return_value={'questions': []}):
+            with self.assertRaises(AIError):
+                generate_ownership_questions({}, {}, max_count=2)
