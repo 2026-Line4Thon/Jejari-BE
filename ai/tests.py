@@ -148,3 +148,19 @@ class TransparentImageTests(SimpleTestCase):
         self.assertEqual(loaded.mode, 'RGB')
         self.assertEqual(loaded.getpixel((2, 2)), (255, 255, 255))  # 배경은 흰색
         self.assertEqual(loaded.getpixel((20, 20)), (0, 0, 0))  # 물건은 그대로
+
+
+class ExtractKnownFeaturesTests(SimpleTestCase):
+    def test_null_like_strings_are_treated_as_unknown(self):
+        from ai.services import extract_known_features
+
+        raw = {
+            'category': '우산', 'color': '카키색', 'size': 'null', 'material': 'NULL',
+            'shape': '접이식', 'marks': '없음', 'brand': ' 알 수 없음 ',
+        }
+        with mock.patch.object(client, 'chat_json', return_value=raw):
+            known = extract_known_features({'category': '우산'}, None)
+        self.assertEqual(known, {
+            'category': '우산', 'color': '카키색', 'size': None, 'material': None,
+            'shape': '접이식', 'marks': None, 'brand': None,
+        })

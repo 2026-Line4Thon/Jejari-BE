@@ -208,6 +208,9 @@ FEATURE_STEPS = ['category', 'color', 'size', 'material', 'shape', 'marks', 'bra
 FEATURE_EXTRACT_SYSTEM = """\
 너는 분실물 정보를 정리하는 도우미다. 사진 분석 결과(tags)와 사용자가 쓴 설명(description)에서
 아래 항목의 값을 짧은 한국어로 뽑는다. 확실하지 않거나 정보가 없으면 null로 둔다. 지어내지 않는다.
+값이 없을 때는 "null", "없음" 같은 글자를 쓰지 말고 JSON null을 쓴다.
+"부드러운 재질", "단단한", "슬림 디자인", "작고 컴팩트한"처럼 모호한 표현은 값으로 쓰지 않고 null로 둔다.
+(이후 사용자에게 그 항목을 직접 물어보므로, 구체적인 값이 분명할 때만 채운다)
 
 - category: 물건 종류 (예: 지갑, 이어폰)
 - color: 대표 색 (예: 검정)

@@ -77,11 +77,14 @@ def normalize_category(category, item_name):
     return category
 
 
-_NO_VALUE = {'없음', '없다', '모름', '알수없음', '알 수 없음', 'n/a', 'none', 'null'}
+_NO_VALUE = {
+    '없음', '없다', '모름', '모르겠음', '알수없음', '알 수 없음', '미상', '불명', '확인불가', '확인 불가',
+    '해당없음', '해당 없음', 'n/a', 'na', 'none', 'null', 'unknown', '-',
+}
 
 
 def _clean_value(value):
-    """'없음'처럼 값이 없다는 뜻의 문자열은 None으로."""
+    """'없음', 'null'처럼 값이 없다는 뜻의 문자열은 None으로 (모델이 null 대신 글자로 쓰는 경우)."""
     value = _clean_text(value)
     return None if value and value.lower() in _NO_VALUE else value
 
@@ -253,7 +256,8 @@ def extract_known_features(tags, description):
     )
     if not isinstance(raw, dict):
         raise AIError('특징 추출 응답 형식이 올바르지 않습니다.')
-    return {step: _clean_text(raw.get(step)) for step in prompts.FEATURE_STEPS}
+    # 'null' 같은 글자를 값으로 받으면 모든 항목을 안다고 판단해 질문 없이 끝나버리므로 None으로 정리
+    return {step: _clean_value(raw.get(step)) for step in prompts.FEATURE_STEPS}
 
 
 _NOT_SURE_OPTION = re.compile(r'모르|모름|기억\s*(이\s*)?안|없어요|없습니다|아니요')
