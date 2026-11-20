@@ -118,6 +118,13 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'  # 공개용 이미지 (블러 반영본)
 PRIVATE_MEDIA_ROOT = BASE_DIR / 'private_media'  # 비공개 원본, URL로 서빙하지 않음
 
+# S3 (배포). 버킷 이름 두 개가 모두 있으면 S3, 아니면 위 로컬 폴더에 저장 (common/storage.py)
+# 자격 증명은 환경변수 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 를 boto3가 직접 읽음
+AWS_S3_REGION_NAME = env('AWS_S3_REGION_NAME', default='ap-northeast-2')
+AWS_PUBLIC_BUCKET_NAME = env('AWS_PUBLIC_BUCKET_NAME', default='')
+AWS_PRIVATE_BUCKET_NAME = env('AWS_PRIVATE_BUCKET_NAME', default='')
+USE_S3 = bool(AWS_PUBLIC_BUCKET_NAME and AWS_PRIVATE_BUCKET_NAME)
+
 IMAGE_MAX_UPLOAD_MB = 10
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
